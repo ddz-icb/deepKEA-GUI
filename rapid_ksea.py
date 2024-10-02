@@ -109,7 +109,9 @@ app.layout = dbc.Container([
                     ])
                 ])
             ], width=12),
-            # Table Viewer
+            
+            html.Div(style={'margin-bottom': '20px'}),
+            
             dbc.Col([
                 dbc.Card([
                     dbc.CardHeader("Enriched kinases on substrate level"),
@@ -141,7 +143,7 @@ app.layout = dbc.Container([
                 dbc.Card([
                     dbc.CardHeader("Enriched kinases on substrate level by adj. p-value"),
                     dbc.CardBody([
-                        dcc.Graph(id='bar-plot1', style={'height': '40vh', 'max-width': '100%'})
+                        dcc.Graph(id='bar-plot1', style={'max-height': '20%', 'max-width': '100%'})
                     ])
                 ])
             ], width=6),
@@ -149,13 +151,13 @@ app.layout = dbc.Container([
                 dbc.Card([
                     dbc.CardHeader("Enriched kinases on modification level by adj. p-value"),
                     dbc.CardBody([
-                        dcc.Graph(id='bar-plot2', style={'height': '40vh', 'max-width': '100%'})
+                        dcc.Graph(id='bar-plot2', style={'max-height': '20%', 'max-width': '100%'})
                     ])
                 ])
             ], width=6)
         ], className='g-4'),
         
-        # Platz zwischen den Rows durch zusätzlichen Container
+        
         html.Div(style={'margin-bottom': '20px'}),
         
         # Row for tables
@@ -325,7 +327,6 @@ def update_output(n_clicks, text_value):
         
         df_p_input = util.read_sites(text_value)
         
-        print(df_p_input.head(10))
         
         df_p_input = df_p_input.drop(columns=["UPID", "SUB_MOD_RSD"])
         # rename SUB_ACC_ID column to UPID
@@ -333,9 +334,7 @@ def update_output(n_clicks, text_value):
         df_p_input = df_p_input.drop_duplicates()
         
         input_pathways = util.get_pathways_by_upid(reactome, df_p_input)
-        print("Found pathways: ", int(len(input_pathways)))
-        print(df_p_input.columns)
-        
+
         # count occurences of pathways
         pathway_counts_input = {}
         for pathway in input_pathways:

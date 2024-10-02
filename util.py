@@ -2,83 +2,156 @@ import pandas as pd
 from statsmodels.stats.multitest import multipletests
 from scipy.stats import fisher_exact
 
+import pandas as pd
+from scipy.stats import fisher_exact
+from statsmodels.stats.multitest import multipletests
+
 def performKSEA(raw_data, sites):
+    # Merge raw_data and sites on both SUB_ACC_ID and SUB_MOD_RSD to match sites accurately
     merged = pd.merge(raw_data, sites, on=["SUB_ACC_ID", "SUB_MOD_RSD"])
+
+    # Group by KINASE and KIN_ACC_ID to get the counts for each kinase
     kinases = merged.groupby(['KINASE', 'KIN_ACC_ID']).size().reset_index(name='count')
     kinases = kinases.sort_values(by='count', ascending=False).reset_index(drop=True)
 
+    # Count the number of hits for each kinase
     kinase_counts = count_kinases(kinases, raw_data)
 
+    # Convert kinase counts to DataFrame and set KINASE as index for easy access
     kinase_counts = pd.DataFrame(kinase_counts, columns=["KINASE", "COUNT", "UPID"])
     kinase_counts = kinase_counts.set_index("KINASE")
 
+    # Calculate p-values using Fisher's exact test
     results = calculate_p_vals(kinase_counts, kinases, merged, raw_data)
 
+    # Convert results to DataFrame and adjust p-values for multiple testing using FDR (Benjamini-Hochberg)
     results = pd.DataFrame(results, columns=["KINASE", "ODDS_RATIO", "P_VALUE", "UPID", "FOUND", "SUB#"])
     results = results.sort_values(by="P_VALUE")
     results['ADJ_P_VALUE'] = multipletests(results['P_VALUE'], method='fdr_bh')[1]
     results = results.reset_index(drop=True)
 
-    ### FIXME Disabled Uniprot link
+    # Optional: Uncomment to add Uniprot links
     # results['UPID'] = results['UPID'].apply(lambda x: f"(https://www.uniprot.org/uniprotkb/{x}/entry)")
     # results["KINASE"] = results["KINASE"].apply(lambda x: f"[{x}]")
     # results["KINASE"] = results["KINASE"] + results["UPID"]
-    #
-    
-    # FIXME UPID activated
-    
-    # results = results.drop(columns=["UPID"])
 
     return results
 
-def performKSEA_high_level(raw_data, sites):
-    merged = pd.merge(raw_data, sites, on=["SUB_ACC_ID"])
-    
-    
-    kinases = merged.groupby(['KINASE', 'KIN_ACC_ID']).size().reset_index(name='count')
-    kinases = kinases.sort_values(by='count', ascending=False).reset_index(drop=True)
+def count_kinases(kinases, raw_data):
+    kinase_counts = []
+    for _, row in kinases.iterrows():
+        kinase = row["KINASE"]
+        upid = row["KIN_ACC_ID"]
 
-    kinase_counts = count_kinases(kinases, raw_data)
+        # Count the total number of sites (hits) for each kinase in raw_data
+        site_count = len(raw_data[raw_data["KINASE"] == kinase])
+        kinase_counts.append([kinase, site_count, upid])
 
-    kinase_counts = pd.DataFrame(kinase_counts, columns=["KINASE", "COUNT", "UPID"])
-    kinase_counts = kinase_counts.set_index("KINASE")
-
-    results = calculate_p_vals(kinase_counts, kinases, merged, raw_data)
-
-    results = pd.DataFrame(results, columns=["KINASE", "ODDS_RATIO", "P_VALUE", "UPID", "FOUND", "SUB#"])
-    results = results.sort_values(by="P_VALUE")
-    results['ADJ_P_VALUE'] = multipletests(results['P_VALUE'], method='fdr_bh')[1]
-    results = results.reset_index(drop=True)
-
-    ### FIXME Disabled Uniprot link
-    # results['UPID'] = results['UPID'].apply(lambda x: f"(https://www.uniprot.org/uniprotkb/{x}/entry)")
-    # results["KINASE"] = results["KINASE"].apply(lambda x: f"[{x}]")
-    # results["KINASE"] = results["KINASE"] + results["UPID"]
-    #
-    
-    # FIXME UPID activated
-    
-    # results = results.drop(columns=["UPID"])
-
-    return results
-
-
+    return kinase_counts
 
 def calculate_p_vals(kinase_counts, kinases, merged, raw_data):
+    results = []
+    for _, row in kinases.iterrows():
+        count = row["count"]
+        kinase = row["KINASE"]
+        upid = row["KIN_ACC_ID"]
+
+        # Number of hits (phosphorylation sites) in the sample for this kinase
+        sub_in_sample = count
+
+        # Number of hits for other kinases in the sample
+        sub_in_sample_w_other_kinase = len(merged[merged["KINASE"] != kinase])
+
+        # Number of hits not found in the sample for this kinase
+        sub_not_in_sample = kinase_counts.loc[kinase, "COUNT"] - count
+
+        # Hits with other kinases in raw_data
+        subs_w_other_kinase = len(raw_data) - kinase_counts.loc[kinase, "COUNT"]
+
+        # Construct the contingency table
+        table = [[sub_in_sample, sub_in_sample_w_other_kinase], [sub_not_in_sample, subs_w_other_kinase]]
+
+        # Flatten the table to check if any value is zero (Fisher's exact test requires positive values)
+        flat_list = [item for sublist in table for item in sublist]
+
+        if all(value > 0 for value in flat_list):
+            odds_ratio, p_value = fisher_exact(table, alternative='greater')
+            odds_ratio = round(odds_ratio, 2)
+            results.append([kinase, odds_ratio, p_value, upid, sub_in_sample, sub_in_sample + sub_not_in_sample])
+        else:
+            # Default values when Fisher's test is not applicable
+            results.append([kinase, -1, 1, upid, sub_in_sample, sub_in_sample + sub_not_in_sample])
+
+    return results
+
+
+def performKSEA_high_level(raw_data, sites):
+    # Merge raw_data and sites based on SUB_ACC_ID
+    merged = pd.merge(raw_data, sites, on=["SUB_ACC_ID"])
+
+    # Remove duplicates to ensure that only unique substrates are counted per kinase
+    merged_unique_substrates = merged.drop_duplicates(subset=["KINASE", "SUB_ACC_ID"])
+
+    # Group by KINASE and KIN_ACC_ID to get the kinase counts, counting unique substrates
+    kinases = merged_unique_substrates.groupby(['KINASE', 'KIN_ACC_ID']).size().reset_index(name='count')
+    kinases = kinases.sort_values(by='count', ascending=False).reset_index(drop=True)
+
+    # Count the kinases and calculate high-level p-values
+    kinase_counts = count_kinases_high_level(kinases, raw_data)
+    kinase_counts = pd.DataFrame(kinase_counts, columns=["KINASE", "COUNT", "UPID"])
+    kinase_counts = kinase_counts.set_index("KINASE")
+
+    results = calculate_p_vals_high_level(kinase_counts, kinases, merged_unique_substrates, raw_data)
+
+    # Convert results into DataFrame and adjust p-values
+    results = pd.DataFrame(results, columns=["KINASE", "ODDS_RATIO", "P_VALUE", "UPID", "FOUND", "SUB#"])
+    results = results.sort_values(by="P_VALUE")
+    results['ADJ_P_VALUE'] = multipletests(results['P_VALUE'], method='fdr_bh')[1]
+    results = results.reset_index(drop=True)
+
+    # Uncomment if you want to create links to Uniprot entries
+    # results['UPID'] = results['UPID'].apply(lambda x: f"(https://www.uniprot.org/uniprotkb/{x}/entry)")
+    # results["KINASE"] = results["KINASE"].apply(lambda x: f"[{x}]")
+    # results["KINASE"] = results["KINASE"] + results["UPID"]
+
+    return results
+
+
+def count_kinases_high_level(kinases, raw_data):
+    kinase_counts = []
+    for index, row in kinases.iterrows():
+        kinase = row["KINASE"]
+        upid = row["KIN_ACC_ID"]
+        
+        # Count distinct substrates for each kinase (ignoring multiple phosphorylation sites)
+        distinct_sub_count = len(raw_data[raw_data["KINASE"] == kinase].drop_duplicates(subset="SUB_ACC_ID"))
+        kinase_counts.append([kinase, distinct_sub_count, upid])
+    
+    return kinase_counts
+
+
+def calculate_p_vals_high_level(kinase_counts, kinases, merged_unique_substrates, raw_data):
     results = []
     for index, row in kinases.iterrows():
         count = row["count"]
         kinase = row["KINASE"]
         upid = row["KIN_ACC_ID"]
-        sub_in_sample = count
-        sub_in_sample_w_other_kinase = len(merged[merged["KINASE"] != kinase])
-        sub_not_in_sample = kinase_counts.loc[kinase, "COUNT"] - count
-        subs_w_other_kinase = len(raw_data) - kinase_counts.loc[kinase, "COUNT"]
-
-        table = [[sub_in_sample, sub_in_sample_w_other_kinase], [sub_not_in_sample, subs_w_other_kinase]]
         
-        # Flatten the table to a single list
-        flat_list = [item for sublist in table for item in sublist]
+        # Number of distinct substrates in the sample for this kinase
+        sub_in_sample = count
+        
+        # Number of distinct substrates in the sample with other kinases
+        sub_in_sample_w_other_kinase = len(merged_unique_substrates[merged_unique_substrates["KINASE"] != kinase])
+        
+        # Number of distinct substrates not in the sample for this kinase
+        sub_not_in_sample = kinase_counts.loc[kinase, "COUNT"] - count
+        
+        # Distinct substrates with other kinases (total number of raw data points minus this kinase's count)
+        subs_w_other_kinase = len(raw_data.drop_duplicates(subset="SUB_ACC_ID")) - kinase_counts.loc[kinase, "COUNT"]
+
+        # Fisher's exact test
+        table = [[sub_in_sample, sub_in_sample_w_other_kinase], [sub_not_in_sample, subs_w_other_kinase]]
+        flat_list = [item for sublist in table for item in sublist]  # Flatten table for the check
         
         if all(value > 0 for value in flat_list):
             odds_ratio, p_value = fisher_exact(table, alternative='greater')
@@ -86,22 +159,9 @@ def calculate_p_vals(kinase_counts, kinases, merged, raw_data):
             results.append([kinase, odds_ratio, p_value, upid, sub_in_sample, sub_in_sample + sub_not_in_sample])
         else:
             results.append([kinase, -1, 1, upid, sub_in_sample, sub_in_sample + sub_not_in_sample])
-        
-        
-        
-        
+    
     return results
 
-
-def count_kinases(kinases, raw_data):
-    kinase_counts = []
-    for index, row in kinases.iterrows():
-        count = row["count"]
-        kinase = row["KINASE"]
-        upid = row["KIN_ACC_ID"]
-        sub_count = len(raw_data[raw_data["KINASE"] == kinase])
-        kinase_counts.append([kinase, sub_count, upid])
-    return kinase_counts
 
 
 def read_sites(content):
@@ -118,9 +178,6 @@ def start_eval(content, raw_data):
     if not sites.empty:
         result = performKSEA(raw_data, sites)
         result_high_level = performKSEA_high_level(raw_data, sites)
-        
-        print(len(result))
-        print(len(result_high_level))
         
         return pd.DataFrame(result), pd.DataFrame(result_high_level)
     else:
