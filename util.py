@@ -51,6 +51,11 @@ def count_kinases(kinases, raw_data):
 
 def calculate_p_vals(kinase_counts, kinases, merged, raw_data):
     results = []
+    
+    # create df for all contengecy tables
+    
+    
+    
     for _, row in kinases.iterrows():
         count = row["count"]
         kinase = row["KINASE"]
@@ -71,6 +76,7 @@ def calculate_p_vals(kinase_counts, kinases, merged, raw_data):
         # Construct the contingency table
         table = [[sub_in_sample, sub_in_sample_w_other_kinase], [sub_not_in_sample, subs_w_other_kinase]]
 
+        
         # Flatten the table to check if any value is zero (Fisher's exact test requires positive values)
         flat_list = [item for sublist in table for item in sublist]
 

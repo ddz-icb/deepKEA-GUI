@@ -129,9 +129,6 @@ app.layout = dbc.Container([
                 ])
             ], width=12),
             
-            
-
-            dcc.Download(id="download-tsv")
         ], className='mb-4'),
 
         # Platz zwischen den Rows durch zusätzlichen Container
@@ -375,7 +372,7 @@ def load_example(n_clicks):
 )
 def download_tsv(n_clicks):
     if not downloadable_df.empty:
-        return dcc.send_data_frame(downloadable_df.to_csv, "data.tsv", sep='\t')
+        return dcc.send_data_frame(downloadable_df.to_csv, "results_site_level.tsv", sep='\t')
     else:
         return None
 
