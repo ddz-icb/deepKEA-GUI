@@ -29,7 +29,7 @@ app.layout = dbc.Container([
             html.Img(src='/assets/ddz_logo_de.png', id='logo', className='img-fluid rounded', style={'padding': '10px'}),
             html.Hr(),
             html.Ul([
-                html.Li(dbc.NavLink('Dashboard 1', href='/', className='nav-link'))
+                html.Li(dbc.NavLink('This is a beta version', href='/', className='nav-link'))
             ], style={'list-style-type': 'none', 'padding': '0', 'margin': '0'})
         ])
     ], className='bg-light', style={
@@ -79,14 +79,12 @@ app.layout = dbc.Container([
                     dbc.CardBody([
                         dbc.Button('Start Analysis', id='button-start-analysis', n_clicks=0, className='mb-3 btn-primary btn-block me-2'),
                         dbc.Button('Example', id='button-example', n_clicks=0, className='mb-3 btn-secondary btn-block me-2' ,outline=False, color='secondary'),
-                        dbc.Button('Download', id='button-download', n_clicks=0, className='mb-3 btn-secondary btn-block me-2', disabled=True, outline=True),
                         dbc.Button("Status", id="open-modal",className='mb-3 btn-secondary btn-block me-2' ,n_clicks=0, outline=True),
     
                     ])
                 ], style={"padding": "10px"})
             ], width=4),
 
-            dcc.Download(id="download-tsv")
         ], className='mb-4'),
         
 
@@ -95,7 +93,23 @@ app.layout = dbc.Container([
             # Table Viewer
             dbc.Col([
                 dbc.Card([
-                    dbc.CardHeader("Enriched kinases on modification Level"),
+                    dbc.Row([
+                        dbc.Col(
+                            dbc.CardHeader([
+                                "Enriched kinases on modification Level", 
+                                dbc.Button("Download", id="button-download", n_clicks=0, className="me-2",  style={
+                                    "backgroundColor": "rgb(4, 60, 124)", 
+                                    "color": "white", 
+                                    "borderColor": "rgb(4, 60, 124)",  # Setzt die Umrandung auf dieselbe Farbe
+                                    "float": "right", 
+                                    "padding": "0", 
+                                    "margin": "0"
+                                })
+                            ]), 
+                        width=12)
+                    ]),
+                    
+                    dcc.Download(id="download-tsv"),
                     dbc.CardBody([
                         dash_table.DataTable(
                             id='table-viewer',
@@ -114,7 +128,22 @@ app.layout = dbc.Container([
             
             dbc.Col([
                 dbc.Card([
-                    dbc.CardHeader("Enriched kinases on substrate level"),
+                    dbc.Row([
+                        dbc.Col(
+                            dbc.CardHeader([
+                                "Enriched kinases on substrate level Level", 
+                                dbc.Button("Download", id="button-download-high-level", n_clicks=0, className="me-2",  style={
+                                    "backgroundColor": "rgb(4, 60, 124)", 
+                                    "color": "white", 
+                                    "borderColor": "rgb(4, 60, 124)",  # Setzt die Umrandung auf dieselbe Farbe
+                                    "float": "right", 
+                                    "padding": "0", 
+                                    "margin": "0"
+                                })
+                            ]), 
+                        width=12)
+                    ]),
+                    dcc.Download(id="download-tsv-high-level"),
                     dbc.CardBody([
                         dash_table.DataTable(
                             id='table-viewer-high-level',
@@ -347,8 +376,6 @@ def update_output(n_clicks, text_value):
         table_columns_pathway_input = [{'name': i, 'id': i} for i in pathway_counts_input.columns]
         table_data_pathway_input = pathway_counts_input.to_dict('records')
         
-        
-        
         return table_columns, table_data, table_columns_high_level ,table_data_high_level ,bar_plot1_figure, bar_plot2_figure, table_columns_pathway, table_data_pathway, table_columns_pathway_input, table_data_pathway_input
     else:
         empty_figure = {'data': [], 'layout': go.Layout(title='Empty')}
@@ -363,7 +390,7 @@ def load_example(n_clicks):
     if n_clicks > 0:
         return [constants.placeholder]
     else:
-        return "",
+        return ""
 
 @app.callback(
     Output("download-tsv", "data"),
@@ -377,16 +404,21 @@ def download_tsv(n_clicks):
         return None
 
 
+
 @app.callback(
-    Output('button-download', 'disabled'),
-    Input('button-start-analysis', 'n_clicks'),
-    prevent_initial_call=True
+    Output("download-tsv-high-level", "data"),
+    Input("button-download-high-level", "n_clicks"),
+    prevent_initial_call=False
 )
-def update_download_button(n_clicks):
-    if n_clicks > 0:
-        if not downloadable_df.empty:
-            return False
-    return True
+
+def download_tsv_high_level(n_clicks):
+    if not downloadable_df_high_level.empty:
+        return dcc.send_data_frame(downloadable_df_high_level.to_csv, "results_mod_level.tsv", sep='\t')
+    else:
+        return None
+
+
+
 
 
 @app.callback(
