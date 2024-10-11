@@ -21,6 +21,7 @@ app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP, dbc_css])
 downloadable_df = pd.DataFrame()
 downloadable_df_high_level = pd.DataFrame()
 
+current_title = ""
 
 app.layout = dbc.Container([
     # Sidebar
@@ -82,7 +83,22 @@ app.layout = dbc.Container([
                         dbc.Button("Status", id="open-modal",className='mb-3 btn-secondary btn-block me-2' ,n_clicks=0, outline=True),
     
                     ])
-                ], style={"padding": "10px"})
+                ], style={"padding": "10px"}),
+                
+                html.Div(style={'margin-bottom': '20px'}),
+                
+                dbc.Card([
+                    dbc.CardHeader("Notes"),
+                    dbc.CardBody([
+                        dcc.Textarea(
+                            id='notes',
+                            style={'width': '100%', 'height': '7vh', 'box-sizing': 'border-box'},
+                            placeholder='Enter Notes or title here',
+                            className='form-control rounded'
+                        )
+                    ])
+                ])
+                
             ], width=4),
 
         ], className='mb-4'),
@@ -399,7 +415,12 @@ def load_example(n_clicks):
 )
 def download_tsv(n_clicks):
     if not downloadable_df.empty:
-        return dcc.send_data_frame(downloadable_df.to_csv, "results_site_level.tsv", sep='\t')
+        
+        if current_title != "":
+            filename = current_title + "_results_site_level.tsv"
+            return dcc.send_data_frame(downloadable_df.to_csv, filename, sep='\t')
+        else:
+            return dcc.send_data_frame(downloadable_df.to_csv, "results_site_level.tsv", sep='\t')
     else:
         return None
 
@@ -408,12 +429,17 @@ def download_tsv(n_clicks):
 @app.callback(
     Output("download-tsv-high-level", "data"),
     Input("button-download-high-level", "n_clicks"),
-    prevent_initial_call=False
+    prevent_initial_call=True
 )
 
 def download_tsv_high_level(n_clicks):
     if not downloadable_df_high_level.empty:
-        return dcc.send_data_frame(downloadable_df_high_level.to_csv, "results_mod_level.tsv", sep='\t')
+        
+        if current_title != "":
+            filename = current_title + "_results_sub_level.tsv"
+            return dcc.send_data_frame(downloadable_df_high_level.to_csv, filename, sep='\t')
+        else:
+            return dcc.send_data_frame(downloadable_df_high_level.to_csv, "results_sub_level.tsv", sep='\t')
     else:
         return None
 
@@ -433,6 +459,16 @@ def toggle_modal(n1, n2, is_open):
 
 
 
+# when input in notes are changes, update the title
+@app.callback(
+    Output('notes', 'value'),
+    Input('notes', 'value')
+)
+
+def update_title(value):
+    global current_title
+    current_title = value
+    return value
 
 
 if __name__ == '__main__':
