@@ -35,7 +35,7 @@ def performKSEA(raw_data, sites):
     # results["KINASE"] = results["KINASE"].apply(lambda x: f"[{x}]")
     # results["KINASE"] = results["KINASE"] + results["UPID"]
 
-    return results
+    return results, merged
 
 def count_kinases(kinases, raw_data):
     kinase_counts = []
@@ -186,10 +186,15 @@ def start_eval(content, raw_data):
     sites = read_sites(content)
     
     if not sites.empty:
-        result = performKSEA(raw_data, sites)
+        result, deep_hits = performKSEA(raw_data, sites)
         result_high_level = performKSEA_high_level(raw_data, sites)
+        print(deep_hits.columns)
+        _columns=['SUB_GENE', 'SUB_MOD_RSD', 'KINASE']
+        # get only the columns in _columns
+        deep_hits = deep_hits[_columns]
         
-        return pd.DataFrame(result), pd.DataFrame(result_high_level)
+        print(deep_hits.columns)
+        return pd.DataFrame(result), pd.DataFrame(result_high_level), deep_hits
     else:
         return pd.DataFrame()
 

@@ -21,26 +21,11 @@ app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP, dbc_css])
 downloadable_df = pd.DataFrame()
 downloadable_df_high_level = pd.DataFrame()
 
+deep_hit_df = pd.DataFrame()
+
 current_title = ""
 
 app.layout = dbc.Container([
-    # Sidebar
-    dbc.Card([
-        dbc.CardBody([
-            html.Img(src='/assets/ddz_logo_de.png', id='logo', className='img-fluid rounded', style={'padding': '10px'}),
-            html.Hr(),
-            html.Ul([
-                html.Li(dbc.NavLink('This is a beta version', href='/', className='nav-link'))
-            ], style={'list-style-type': 'none', 'padding': '0', 'margin': '0'})
-        ])
-    ], className='bg-light', style={
-        'width': '250px',
-        'height': '100vh',
-        'position': 'fixed',
-        'left': '0',
-        'top': '0'
-    }),
-
     # Main content
     dbc.Container([
         dbc.Modal(
@@ -72,7 +57,25 @@ app.layout = dbc.Container([
                 )
                     ])
                 ])
-            ], width=8),
+            ], width=4),
+            
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardHeader("Detail view"),
+                    dbc.CardBody([
+                        # table viewer for deep hits
+                        dash_table.DataTable(
+                            id='table-viewer-deep-hits',
+                            columns=[{'name': i, 'id': i} for i in deep_hit_df.columns],
+                            data=deep_hit_df.to_dict('records'),
+                            page_size=10,
+                            style_table={'overflowX': 'auto'},
+                            style_as_list_view=True,
+                            style_header={'backgroundColor': 'rgb(4, 60, 124)', 'color': 'white', 'fontWeight': 'bold' },
+                        )
+                    ])
+                ])
+            ], width=4),
 
             # Button Widget
             dbc.Col([
@@ -241,9 +244,8 @@ app.layout = dbc.Container([
         
         
     ], style={
-    'margin-left': '250px',   # Für die Sidebar
     'padding': '20px',
-    'width': 'calc(100% - 250px)',  # Stellt sicher, dass der Container die restliche Breite einnimmt
+    'width': '100%',  # Stellt sicher, dass der Container die restliche Breite einnimmt
     'box-sizing': 'border-box'}),
 ], fluid=True )
 
@@ -265,7 +267,7 @@ app.layout = dbc.Container([
 )
 def update_output(n_clicks, text_value):
     if n_clicks > 0:
-        df,df_high_level = util.start_eval(text_value, raw_data)
+        df,df_high_level,deep_hits = util.start_eval(text_value, raw_data)
         df_a = df.copy()
         
         #####
@@ -274,6 +276,10 @@ def update_output(n_clicks, text_value):
         
         global downloadable_df_high_level
         downloadable_df_high_level = df_high_level.copy()
+        
+        global deep_hit_df
+        deep_hit_df = deep_hits.copy()
+        
         #####
         
         df = df.drop(columns=["UPID"])
@@ -470,6 +476,26 @@ def update_title(value):
     current_title = value
     return value
 
+@app.callback(
+    Output('table-viewer-deep-hits', 'columns'),
+    Output('table-viewer-deep-hits', 'data'),
+    Input('table-viewer', 'active_cell'),
+    State('table-viewer', 'data'),
+)
+
+def display_row_details(active_cell, table_data):
+    if active_cell is not None:
+        row_index = active_cell['row']  # Holen der Zeilenindex der aktiven Zelle
+        # get value of column KINASE from selected row
+        kinase = table_data[row_index]['KINASE']
+        
+        # display data from deep_hits for selected kinase
+        deep_hits = deep_hit_df[deep_hit_df['KINASE'] == kinase]
+        columns = [{'name': i, 'id': i} for i in deep_hits.columns]
+        data = deep_hits.to_dict('records')
+        return columns, data
+        
+    return "Keine Zelle ausgewählt"
 
 if __name__ == '__main__':
     raw_data = pd.read_csv(constants.KIN_SUB_DATASET_PATH, sep='\t')
