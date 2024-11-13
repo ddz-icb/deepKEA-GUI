@@ -63,15 +63,19 @@ def calculate_p_vals(kinase_counts, kinases, merged, raw_data):
 
         # Number of hits (phosphorylation sites) in the sample for this kinase
         sub_in_sample = count
+        # 4 schwarze kugeln
 
         # Number of hits for other kinases in the sample
         sub_in_sample_w_other_kinase = len(merged[merged["KINASE"] != kinase])
+        # eine rote kugel
 
         # Number of hits not found in the sample for this kinase
         sub_not_in_sample = kinase_counts.loc[kinase, "COUNT"] - count
-
+        # schwarze kugeln übrig in urne
+        
         # Hits with other kinases in raw_data
-        subs_w_other_kinase = len(raw_data) - kinase_counts.loc[kinase, "COUNT"]
+        subs_w_other_kinase = len(raw_data[raw_data["KINASE"] != kinase]) - sub_in_sample_w_other_kinase
+        
 
         # Construct the contingency table
         table = [[sub_in_sample, sub_in_sample_w_other_kinase], [sub_not_in_sample, subs_w_other_kinase]]
@@ -190,10 +194,10 @@ def start_eval(content, raw_data):
         return pd.DataFrame()
 
 def format_p_value(value):
-    if value < 0.05:
+    if value < 0.000001:
         return f"{value:.2e}"
     else:
-        return f"{value:.2f}"
+        return f"{value:.6f}"
 
 
 def get_pathways_by_upid(lookup, df_p):
