@@ -22,7 +22,7 @@ downloadable_df = pd.DataFrame()
 downloadable_df_high_level = pd.DataFrame()
 
 deep_hit_df = pd.DataFrame()
-
+high_hit_df = pd.DataFrame()
 current_title = ""
 
 app.layout = dbc.Container([
@@ -57,25 +57,8 @@ app.layout = dbc.Container([
                 )
                     ])
                 ])
-            ], width=4),
+            ], width=8),
             
-            dbc.Col([
-                dbc.Card([
-                    dbc.CardHeader("Detail view"),
-                    dbc.CardBody([
-                        # table viewer for deep hits
-                        dash_table.DataTable(
-                            id='table-viewer-deep-hits',
-                            columns=[{'name': i, 'id': i} for i in deep_hit_df.columns],
-                            data=deep_hit_df.to_dict('records'),
-                            page_size=10,
-                            style_table={'overflowX': 'auto'},
-                            style_as_list_view=True,
-                            style_header={'backgroundColor': 'rgb(4, 60, 124)', 'color': 'white', 'fontWeight': 'bold' },
-                        )
-                    ])
-                ])
-            ], width=4),
 
             # Button Widget
             dbc.Col([
@@ -134,6 +117,28 @@ app.layout = dbc.Container([
                             id='table-viewer',
                             columns=[],
                             data=[],
+                            style_table={
+                                'overflowY': 'auto',
+                                'maxHeight': '500px',  # Setzt eine maximale Höhe
+                                'overflowX': 'auto'
+                            },
+                            style_as_list_view=True,
+                            style_header={'backgroundColor': 'rgb(4, 60, 124)', 'color': 'white', 'fontWeight': 'bold' },
+                            
+                        )
+                    ])
+                ])
+            ], width=8),
+            
+             dbc.Col([
+                dbc.Card([
+                    dbc.CardHeader("Detail view"),
+                    dbc.CardBody([
+                        # table viewer for deep hits
+                        dash_table.DataTable(
+                            id='table-viewer-deep-hits',
+                            columns=[{'name': i, 'id': i} for i in deep_hit_df.columns],
+                            data=deep_hit_df.to_dict('records'),
                             page_size=10,
                             style_table={'overflowX': 'auto'},
                             style_as_list_view=True,
@@ -141,7 +146,8 @@ app.layout = dbc.Container([
                         )
                     ])
                 ])
-            ], width=12),
+            ], width=4),
+            
             
             html.Div(style={'margin-bottom': '20px'}),
             
@@ -168,6 +174,28 @@ app.layout = dbc.Container([
                             id='table-viewer-high-level',
                             columns=[],
                             data=[],
+                            style_table={
+                                'overflowY': 'auto',
+                                'maxHeight': '500px',  # Setzt eine maximale Höhe
+                                'overflowX': 'auto'
+                            },
+                            style_as_list_view=True,
+                            style_header={'backgroundColor': 'rgb(4, 60, 124)', 'color': 'white', 'fontWeight': 'bold' },
+                        )
+                    ])
+                ])
+            ], width=8),
+            
+            
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardHeader("Detail view"),
+                    dbc.CardBody([
+                        # table viewer for deep hits
+                        dash_table.DataTable(
+                            id='table-viewer-high-hits',
+                            columns=[{'name': i, 'id': i} for i in deep_hit_df.columns],
+                            data=deep_hit_df.to_dict('records'),
                             page_size=10,
                             style_table={'overflowX': 'auto'},
                             style_as_list_view=True,
@@ -175,7 +203,8 @@ app.layout = dbc.Container([
                         )
                     ])
                 ])
-            ], width=12),
+            ], width=4),
+            
             
         ], className='mb-4'),
 
@@ -267,7 +296,7 @@ app.layout = dbc.Container([
 )
 def update_output(n_clicks, text_value):
     if n_clicks > 0:
-        df,df_high_level,deep_hits = util.start_eval(text_value, raw_data)
+        df,df_high_level,deep_hits,high_hits = util.start_eval(text_value, raw_data)
         df_a = df.copy()
         
         #####
@@ -279,6 +308,9 @@ def update_output(n_clicks, text_value):
         
         global deep_hit_df
         deep_hit_df = deep_hits.copy()
+        
+        global high_hit_df
+        high_hit_df = high_hits.copy()
         
         #####
         
@@ -350,7 +382,7 @@ def update_output(n_clicks, text_value):
         #update_download_button(0)
         
         pathways = []
-        df_p =  downloadable_df.drop(columns=["P_VALUE", "ODDS_RATIO", "FOUND", "SUB#", "ADJ_P_VALUE"])
+        df_p =  downloadable_df.drop(columns=["P_VALUE", "FOUND", "SUB#", "ADJ_P_VALUE"])
         
         
         pathways = util.get_pathways_by_upid(reactome, df_p)
@@ -496,6 +528,33 @@ def display_row_details(active_cell, table_data):
         return columns, data
         
     return "Keine Zelle ausgewählt"
+
+
+#table-viewer-high-level
+@app.callback(
+    Output('table-viewer-high-hits', 'columns'),
+    Output('table-viewer-high-hits', 'data'),
+    Input('table-viewer-high-level', 'active_cell'),
+    State('table-viewer-high-level', 'data'),
+)
+
+def display_row_details_high(active_cell, table_data):
+    if active_cell is not None:
+        row_index = active_cell['row']  # Holen der Zeilenindex der aktiven Zelle
+        # get value of column KINASE from selected row
+        kinase = table_data[row_index]['KINASE']
+        
+        # display data from deep_hits for selected kinase
+        high_hits = high_hit_df[high_hit_df['KINASE'] == kinase]
+        columns = [{'name': i, 'id': i} for i in high_hits.columns]
+        data = high_hits.to_dict('records')
+        return columns, data
+        
+    return "Keine Zelle ausgewählt"
+
+
+#table-viewer-high-level
+
 
 if __name__ == '__main__':
     raw_data = pd.read_csv(constants.KIN_SUB_DATASET_PATH, sep='\t')

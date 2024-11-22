@@ -98,9 +98,11 @@ def calculate_p_vals(kinase_counts, kinases, merged, raw_data):
 def performKSEA_high_level(raw_data, sites):
     # Merge raw_data and sites based on SUB_ACC_ID
     merged = pd.merge(raw_data, sites, on=["SUB_ACC_ID"])
-
+    # drop duplicates where SUB_GENE is the same
+    merged = merged.drop_duplicates(subset="SUB_GENE")
+    
     # Remove duplicates to ensure that only unique substrates are counted per kinase
-    merged_unique_substrates = merged.drop_duplicates(subset=["KINASE", "SUB_ACC_ID"])
+    merged_unique_substrates = merged
 
     # Group by KINASE and KIN_ACC_ID to get the kinase counts, counting unique substrates
     kinases = merged_unique_substrates.groupby(['KINASE', 'KIN_ACC_ID']).size().reset_index(name='count')
@@ -124,7 +126,7 @@ def performKSEA_high_level(raw_data, sites):
     # results["KINASE"] = results["KINASE"].apply(lambda x: f"[{x}]")
     # results["KINASE"] = results["KINASE"] + results["UPID"]
 
-    return results
+    return results, merged
 
 
 def count_kinases_high_level(kinases, raw_data):
@@ -179,6 +181,8 @@ def read_sites(content):
     data = [entry.split('_') for entry in entries]
     df = pd.DataFrame(data, columns=['SUB_ACC_ID', 'UPID', 'SUB_MOD_RSD'])
     df = df.assign(SUB_MOD_RSD=df['SUB_MOD_RSD'].str.split(',')).explode('SUB_MOD_RSD')
+    
+    df = df.drop_duplicates()
     return df
 
 def start_eval(content, raw_data):
@@ -187,14 +191,16 @@ def start_eval(content, raw_data):
     
     if not sites.empty:
         result, deep_hits = performKSEA(raw_data, sites)
-        result_high_level = performKSEA_high_level(raw_data, sites)
-        print(deep_hits.columns)
-        _columns=['SUB_GENE', 'SUB_MOD_RSD', 'KINASE']
-        # get only the columns in _columns
-        deep_hits = deep_hits[_columns]
+        result_high_level, high_level_hits = performKSEA_high_level(raw_data, sites)
         
-        print(deep_hits.columns)
-        return pd.DataFrame(result), pd.DataFrame(result_high_level), deep_hits
+        
+        deep_hit_columns=['SUB_GENE', 'SUB_MOD_RSD', 'KINASE']
+        deep_hits = deep_hits[deep_hit_columns]
+        
+        high_level_hit_columns=['SUB_GENE', 'KINASE']
+        high_level_hits = high_level_hits[high_level_hit_columns]
+        
+        return pd.DataFrame(result), pd.DataFrame(result_high_level), deep_hits, high_level_hits
     else:
         return pd.DataFrame()
 
