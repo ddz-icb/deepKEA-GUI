@@ -21,6 +21,8 @@ app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP, dbc_css])
 downloadable_df = pd.DataFrame()
 downloadable_df_high_level = pd.DataFrame()
 
+raw_data = pd.DataFrame()
+
 deep_hit_df = pd.DataFrame()
 high_hit_df = pd.DataFrame()
 current_title = ""
@@ -67,7 +69,15 @@ app.layout = dbc.Container([
                         dbc.Button('Start Analysis', id='button-start-analysis', n_clicks=0, className='mb-3 btn-primary btn-block me-2'),
                         dbc.Button('Example', id='button-example', n_clicks=0, className='mb-3 btn-secondary btn-block me-2' ,outline=False, color='secondary'),
                         dbc.Button("Status", id="open-modal",className='mb-3 btn-secondary btn-block me-2' ,n_clicks=0, outline=True),
-    
+
+                        # Checkbox for custom dataset
+                        dcc.Checklist(
+                            value=[],
+                            id='checkbox_custom_dataset',
+                            options=[{'label': 'Enable Feature', 'value': 'checked'}],
+                            className='mt-3'
+                        )
+                        
                     ])
                 ], style={"padding": "10px"}),
                 
@@ -296,6 +306,9 @@ app.layout = dbc.Container([
 )
 def update_output(n_clicks, text_value):
     if n_clicks > 0:
+        
+        
+        print(len(raw_data[raw_data["KINASE"] == "PRKD1"]))
         df,df_high_level,deep_hits,high_hits = util.start_eval(text_value, raw_data)
         df_a = df.copy()
         
@@ -312,6 +325,7 @@ def update_output(n_clicks, text_value):
         global high_hit_df
         high_hit_df = high_hits.copy()
         
+        print("Deep hits: ", len(deep_hits))
         #####
         
         df = df.drop(columns=["UPID"])
@@ -552,8 +566,30 @@ def display_row_details_high(active_cell, table_data):
         
     return "Keine Zelle ausgewählt"
 
-
-#table-viewer-high-level
+@app.callback(
+    Output('checkbox_custom_dataset', 'className'),  # Dummy-Ausgabe, nur zur Ausführung
+    Input('checkbox_custom_dataset', 'value')
+)
+def handle_checkbox(checked):
+    global raw_data
+    raw_data = pd.DataFrame()
+    if 'checked' in checked:
+        print("Before ovveride: ", len(raw_data))
+        raw_data = pd.read_csv(constants.CUSTOM_DATASET_PATH, sep='\t')
+        raw_data = raw_data.drop_duplicates()
+        print("After overide: ", len(raw_data))
+        raw_data = raw_data[raw_data['SUB_ORGANISM'] == constants.SUB_ORGANISM]
+        raw_data = raw_data[raw_data['KIN_ORGANISM'] == constants.KIN_ORGANISM]
+        print("After overide (2): ", len(raw_data))
+        
+        print("Custom dataset loaded")
+    else:
+        raw_data = pd.read_csv(constants.KIN_SUB_DATASET_PATH, sep='\t')
+        raw_data = raw_data[raw_data['SUB_ORGANISM'] == constants.SUB_ORGANISM]
+        raw_data = raw_data[raw_data['KIN_ORGANISM'] == constants.KIN_ORGANISM]
+        print("Default dataset loaded")
+        
+    return 'mt-3'  # Unverändert, dient nur als Dummy
 
 
 if __name__ == '__main__':

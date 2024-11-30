@@ -9,6 +9,8 @@ Q9NP74_PALMD_S486
 Q9H1E3_NUCKS1_S79"""
 
 KIN_SUB_DATASET_PATH = "assets/Kinase_Substrate_Dataset.txt"
+CUSTOM_DATASET_PATH  = "assets/PSP_HARRY_INTERSEC.tsv"
+
 REACTOME_PATH = "assets/UniProt2Reactome_All_Levels.tsv"
 SUB_ORGANISM = 'human'
 KIN_ORGANISM = 'human'
