@@ -74,7 +74,7 @@ app.layout = dbc.Container([
                         dcc.Checklist(
                             value=[],
                             id='checkbox_custom_dataset',
-                            options=[{'label': 'Enable Feature', 'value': 'checked'}],
+                            options=[{'label': 'Harry Only Mode', 'value': 'unchecked'}],
                             className='mt-3'
                         )
                         
@@ -600,5 +600,5 @@ if __name__ == '__main__':
     reactome = pd.read_csv(constants.REACTOME_PATH, sep='\t', header=None, names=['UPID', 'REACTOME_ID', 'LINK', 'REACTOME_NAME', '0', 'SPECIES'])
     reactome = reactome[reactome['SPECIES'] == constants.ORGANISM_REACTOME]
     
-
     app.run_server(debug=True)
+    #app.run_server(host="192.168.2.47", port = 8080, debug=True)
