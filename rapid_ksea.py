@@ -22,7 +22,6 @@ downloadable_df = pd.DataFrame()
 downloadable_df_high_level = pd.DataFrame()
 
 raw_data = pd.DataFrame()
-
 deep_hit_df = pd.DataFrame()
 high_hit_df = pd.DataFrame()
 current_title = ""
@@ -596,6 +595,10 @@ if __name__ == '__main__':
     raw_data = pd.read_csv(constants.KIN_SUB_DATASET_PATH, sep='\t')
     raw_data = raw_data[raw_data['SUB_ORGANISM'] == constants.SUB_ORGANISM]
     raw_data = raw_data[raw_data['KIN_ORGANISM'] == constants.KIN_ORGANISM]
+    raw_data = raw_data[["GENE","KINASE","KIN_ACC_ID", "KIN_ORGANISM","SUBSTRATE", "SUB_ACC_ID", "SUB_GENE", "SUB_ORGANISM", "SUB_MOD_RSD"]]
+    
+    
+    
     
     reactome = pd.read_csv(constants.REACTOME_PATH, sep='\t', header=None, names=['UPID', 'REACTOME_ID', 'LINK', 'REACTOME_NAME', '0', 'SPECIES'])
     reactome = reactome[reactome['SPECIES'] == constants.ORGANISM_REACTOME]
