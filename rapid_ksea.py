@@ -26,7 +26,17 @@ deep_hit_df = pd.DataFrame()
 high_hit_df = pd.DataFrame()
 current_title = ""
 
+correction_methods = [
+    {"label": "Benjamini-Hochberg (FDR-BH)", "value": "fdr_bh"},
+    {"label": "Benjamini-Yekutieli (FDR-BY)", "value": "fdr_by"},
+    {"label": "Bonferroni", "value": "bonferroni"}
+]
+
 app.layout = dbc.Container([
+    
+    dcc.Store(id="correction-method-store", data="fdr_bh"),  # Standard auf 'fdr_bh'
+    
+    
     # Main content
     dbc.Container([
         dbc.Modal(
@@ -75,7 +85,22 @@ app.layout = dbc.Container([
                             id='checkbox_custom_dataset',
                             options=[{'label': 'Harry Only Mode', 'value': 'unchecked'}],
                             className='mt-3'
-                        )
+                        ),
+                        
+                        # Dropdown für Korrektur Methode
+                        html.Label("Correction Method:", className="mt-3"),
+                        dcc.Dropdown(
+                            id="correction-method-dropdown",
+                            options=correction_methods,
+                            value="fdr_bh",  # Standard auf FDR-BH
+                            clearable=False,
+                            style={"width": "100%"}
+                        ),
+                        
+                        # Debug: Zeigt aktuellen Wert
+                        html.Br(),
+                        html.Div(id="correction-method-display", style={"fontWeight": "bold", "color": "blue"}),
+                        
                         
                     ])
                 ], style={"padding": "10px"}),
@@ -301,14 +326,15 @@ app.layout = dbc.Container([
      Output('table-viewer-pathway-input', 'data')
      ],
     [Input('button-start-analysis', 'n_clicks')],
-    [State('text-input', 'value')]
+    [State('text-input', 'value')],
+    State('correction-method-store', 'data')
 )
-def update_output(n_clicks, text_value):
+def update_output(n_clicks, text_value, correction_method):
     if n_clicks > 0:
+        print("Correction method: ", correction_method)
         
         
-        print(len(raw_data[raw_data["KINASE"] == "PRKD1"]))
-        df,df_high_level,deep_hits,high_hits = util.start_eval(text_value, raw_data)
+        df,df_high_level,deep_hits,high_hits = util.start_eval(text_value, raw_data, correction_method)
         df_a = df.copy()
         
         #####
@@ -324,7 +350,6 @@ def update_output(n_clicks, text_value):
         global high_hit_df
         high_hit_df = high_hits.copy()
         
-        print("Deep hits: ", len(deep_hits))
         #####
         
         df = df.drop(columns=["UPID"])
@@ -590,6 +615,19 @@ def handle_checkbox(checked):
         
     return 'mt-3'  # Unverändert, dient nur als Dummy
 
+
+# Callback, um die Korrekturmethode in `dcc.Store` zu speichern und anzuzeigen
+@app.callback(
+    Output("correction-method-store", "data"),
+    Output("correction-method-display", "children"),  # Debug-Anzeige
+    Input("correction-method-dropdown", "value"),
+)
+def update_correction_method(selected_method):
+    
+    # simulate click on start analysis
+    update_output(1, constants.placeholder, selected_method)
+    
+    return selected_method, f"Selected correction method: {selected_method}"
 
 if __name__ == '__main__':
     raw_data = pd.read_csv(constants.KIN_SUB_DATASET_PATH, sep='\t')

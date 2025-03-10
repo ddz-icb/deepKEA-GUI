@@ -6,7 +6,7 @@ import pandas as pd
 from scipy.stats import fisher_exact
 from statsmodels.stats.multitest import multipletests
 
-def performKSEA(raw_data, sites):
+def performKSEA(raw_data, sites, correction_method):
     # Merge raw_data and sites on both SUB_ACC_ID and SUB_MOD_RSD to match sites accurately
     merged = pd.merge(raw_data, sites, on=["SUB_ACC_ID", "SUB_MOD_RSD"])
 
@@ -27,7 +27,7 @@ def performKSEA(raw_data, sites):
     # Convert results to DataFrame and adjust p-values for multiple testing using FDR (Benjamini-Hochberg)
     results = pd.DataFrame(results, columns=["KINASE", "ODDS_RATIO", "P_VALUE", "UPID", "FOUND", "SUB#"])
     results = results.sort_values(by="P_VALUE")
-    results['ADJ_P_VALUE'] = multipletests(results['P_VALUE'], method='fdr_bh')[1]
+    results['ADJ_P_VALUE'] = multipletests(results['P_VALUE'], method=correction_method)[1]
     results = results.reset_index(drop=True)
 
     # Optional: Uncomment to add Uniprot links
@@ -93,7 +93,7 @@ def calculate_p_vals(kinase_counts, kinases, merged, _raw_data):
     return results
 
 
-def performKSEA_high_level(raw_data, sites):
+def performKSEA_high_level(raw_data, sites, correction_method):
     # Merge raw_data and sites on both SUB_ACC_ID and SUB_MOD_RSD to match sites accurately
     
     sites = sites.drop(columns=['SUB_MOD_RSD'])
@@ -122,7 +122,7 @@ def performKSEA_high_level(raw_data, sites):
     # Convert results to DataFrame and adjust p-values for multiple testing using FDR (Benjamini-Hochberg)
     results = pd.DataFrame(results, columns=["KINASE", "ODDS_RATIO", "P_VALUE", "UPID", "FOUND", "SUB#"])
     results = results.sort_values(by="P_VALUE")
-    results['ADJ_P_VALUE'] = multipletests(results['P_VALUE'], method='fdr_bh')[1]
+    results['ADJ_P_VALUE'] = multipletests(results['P_VALUE'], method=correction_method)[1]
     results = results.reset_index(drop=True)
 
     return results, merged
@@ -172,13 +172,13 @@ def read_sites(content):
     df = df.drop_duplicates()
     return df
 
-def start_eval(content, raw_data):
+def start_eval(content, raw_data, correction_method):
     
     sites = read_sites(content)
     
     if not sites.empty:
-        result, deep_hits = performKSEA(raw_data, sites)
-        result_high_level, high_level_hits = performKSEA_high_level(raw_data, sites)
+        result, deep_hits = performKSEA(raw_data, sites, correction_method)
+        result_high_level, high_level_hits = performKSEA_high_level(raw_data, sites, correction_method)
         
         
         deep_hit_columns=['SUB_GENE', 'SUB_MOD_RSD', 'KINASE']
