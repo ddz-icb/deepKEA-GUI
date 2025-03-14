@@ -18,7 +18,7 @@ import io
 # Initialize the Dash app
 dbc_css = "https://cdn.jsdelivr.net/gh/AnnMarieW/dash-bootstrap-templates/dbc.min.css"
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP, dbc_css])
-downloadable_df = pd.DataFrame()
+downloadable_df_deep_level = pd.DataFrame()
 downloadable_df_high_level = pd.DataFrame()
 
 raw_data = pd.DataFrame()
@@ -338,8 +338,8 @@ def update_output(n_clicks, text_value, correction_method):
         df_a = df.copy()
         
         #####
-        global downloadable_df
-        downloadable_df = df.copy()
+        global downloadable_df_deep_level
+        downloadable_df_deep_level = df.copy()
         
         global downloadable_df_high_level
         downloadable_df_high_level = df_high_level.copy()
@@ -420,7 +420,7 @@ def update_output(n_clicks, text_value, correction_method):
         #update_download_button(0)
         
         pathways = []
-        df_p =  downloadable_df.drop(columns=["P_VALUE", "FOUND", "SUB#", "ADJ_P_VALUE"])
+        df_p =  downloadable_df_deep_level.drop(columns=["P_VALUE", "FOUND", "SUB#", "ADJ_P_VALUE"])
         
         
         pathways = util.get_pathways_by_upid(reactome, df_p)
@@ -490,13 +490,24 @@ def load_example(n_clicks):
     prevent_initial_call=True
 )
 def download_tsv(n_clicks):
-    if not downloadable_df.empty:
+    if not downloadable_df_deep_level.empty:
+        
+        ######### Join hits on download file #############
+        deep_hits_grouped = (
+            deep_hit_df
+            .assign(GENE_SITE=lambda df: df["SUB_GENE"] + "-" + df["SUB_MOD_RSD"])  # Kombiniere die zwei Spalten
+            .groupby("KINASE")["GENE_SITE"]
+            .apply(lambda x: ', '.join(x))  # Verbinde alle Hits mit Komma
+            .reset_index()
+        )       
+        downloadable_df_deep_level_with_hits = downloadable_df_deep_level.merge(deep_hits_grouped, on = "KINASE", how = "left")
+        ##################################################
         
         if current_title != "":
             filename = current_title + "_results_site_level.tsv"
-            return dcc.send_data_frame(downloadable_df.to_csv, filename, sep='\t')
+            return dcc.send_data_frame(downloadable_df_deep_level_with_hits.to_csv, filename, sep='\t')
         else:
-            return dcc.send_data_frame(downloadable_df.to_csv, "results_site_level.tsv", sep='\t')
+            return dcc.send_data_frame(downloadable_df_deep_level_with_hits.to_csv, "results_site_level.tsv", sep='\t')
     else:
         return None
 
@@ -511,11 +522,16 @@ def download_tsv(n_clicks):
 def download_tsv_high_level(n_clicks):
     if not downloadable_df_high_level.empty:
         
+        ######### Join hits on download file #############
+        high_hits_grouped = high_hit_df.groupby("KINASE")["SUB_GENE"].apply(lambda x: ', '.join(x)).reset_index()
+        downloadable_df_high_level_with_hits = downloadable_df_high_level.merge(high_hits_grouped, on = "KINASE", how = "left")
+        ##################################################
+        
         if current_title != "":
             filename = current_title + "_results_sub_level.tsv"
-            return dcc.send_data_frame(downloadable_df_high_level.to_csv, filename, sep='\t')
+            return dcc.send_data_frame(downloadable_df_high_level_with_hits.to_csv, filename, sep='\t')
         else:
-            return dcc.send_data_frame(downloadable_df_high_level.to_csv, "results_sub_level.tsv", sep='\t')
+            return dcc.send_data_frame(downloadable_df_high_level_with_hits.to_csv, "results_sub_level.tsv", sep='\t')
     else:
         return None
 
