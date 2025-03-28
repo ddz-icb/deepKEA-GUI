@@ -113,7 +113,7 @@ app.layout = dbc.Container([
                         dcc.Textarea(
                             id='notes',
                             style={'width': '100%', 'height': '7vh', 'box-sizing': 'border-box'},
-                            placeholder='Enter Notes or title here',
+                            placeholder='ENTER TITLE FOR DOWNLOAD FILE',
                             className='form-control rounded'
                         )
                     ])

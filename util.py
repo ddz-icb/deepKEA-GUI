@@ -22,7 +22,7 @@ def performKSEA(raw_data, sites, correction_method):
     kinase_counts = kinase_counts.set_index("KINASE")
 
     # Calculate p-values using Fisher's exact test
-    results = calculate_p_vals(kinase_counts, kinases, merged, raw_data)
+    results = calculate_p_vals(kinase_counts, kinases, merged, raw_data, "Deep")
 
     # Convert results to DataFrame and adjust p-values for multiple testing using FDR (Benjamini-Hochberg)
     results = pd.DataFrame(results, columns=["KINASE", "ODDS_RATIO", "P_VALUE", "UPID", "FOUND", "SUB#"])
@@ -49,46 +49,49 @@ def count_kinases(kinases, _raw_data):
 
     return kinase_counts
 
-def calculate_p_vals(kinase_counts, kinases, merged, _raw_data):
+
+def calculate_p_vals(kinase_counts, kinases, merged, _raw_data, mode = ""):
     results = []
     
-    # create df for all contengecy tables
+    print("Calculating p-values...")
+    print("Mode: ", mode)
     
     for _, row in kinases.iterrows():
         count = row["count"]
         kinase = row["KINASE"]
         upid = row["KIN_ACC_ID"]
 
-        # Number of hits (phosphorylation sites) in the sample for this kinase
-        sub_in_sample = count
-        # 4 schwarze kugeln
-
-        # Number of hits for other kinases in the sample
-        sub_in_sample_w_other_kinase = len(merged[merged["KINASE"] != kinase])
-        # eine rote kugel
-
-        # Number of hits not found in the sample for this kinase
-        sub_not_in_sample = kinase_counts.loc[kinase, "COUNT"] - count
-        # schwarze kugeln übrig in urne
+        # No. of hits in sample for current kinase
+        x = count
         
-        # Hits with other kinases in raw_data
-        subs_w_other_kinase = len(_raw_data[_raw_data["KINASE"] != kinase]) - sub_in_sample_w_other_kinase
+        # Sample size
+        N = len(merged)
+        
+        # No. of annotated substrates for current kinase
+        n = len(_raw_data[_raw_data["KINASE"] == kinase])
+        
+        
+        M = len(_raw_data)
+        ###
         
 
-        # Construct the contingency table
-        table = [[sub_in_sample, sub_in_sample_w_other_kinase], [sub_not_in_sample, subs_w_other_kinase]]
+        table = [   [x,     n-x     ],
+                    [N-x,   M-N-n+x] ]
 
+        print(f"Kinase: {kinase}")
+        print(table)
         
         # Flatten the table to check if any value is zero (Fisher's exact test requires positive values)
         flat_list = [item for sublist in table for item in sublist]
 
         if all(value > 0 for value in flat_list):
-            odds_ratio, p_value = fisher_exact(table, alternative='greater')
+            odds_ratio, p_value = fisher_exact(table, alternative='two-sided')
             odds_ratio = round(odds_ratio, 2)
-            results.append([kinase, odds_ratio, p_value, upid, sub_in_sample, sub_in_sample + sub_not_in_sample])
+            print(f"P-value: {p_value}")
+            results.append([kinase, odds_ratio, p_value, upid, x, n])
         else:
             # Default values when Fisher's test is not applicable
-            results.append([kinase, -1, 1, upid, sub_in_sample, sub_in_sample + sub_not_in_sample])
+            results.append([kinase, -1, 1, upid, x, n])
 
     return results
 
@@ -117,7 +120,7 @@ def performKSEA_high_level(raw_data, sites, correction_method):
     kinase_counts = kinase_counts.set_index("KINASE")
 
     # Calculate p-values using Fisher's exact test
-    results = calculate_p_vals(kinase_counts, kinases, merged, raw_data_cpy)
+    results = calculate_p_vals(kinase_counts, kinases, merged, raw_data_cpy, "High")
 
     # Convert results to DataFrame and adjust p-values for multiple testing using FDR (Benjamini-Hochberg)
     results = pd.DataFrame(results, columns=["KINASE", "ODDS_RATIO", "P_VALUE", "UPID", "FOUND", "SUB#"])
