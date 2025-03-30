@@ -13,6 +13,7 @@ import plotly.colors as colors
 import util
 import constants
 import math
+import base64
 import io
 
 # Initialize the Dash app
@@ -79,6 +80,14 @@ app.layout = dbc.Container([
                         dbc.Button('Example', id='button-example', n_clicks=0, className='mb-3 btn-secondary btn-block me-2' ,outline=False, color='secondary'),
                         dbc.Button("Status", id="open-modal",className='mb-3 btn-secondary btn-block me-2' ,n_clicks=0, outline=True),
 
+                        # Button to upload a text file
+                        dcc.Upload(
+                            id='upload-text-file',
+                            children=dbc.Button('Upload File', className='mb-3 btn-secondary btn-block me-2'),
+                            multiple=False,
+                            style={'width': '100%'}
+                        ),
+                        
                         # Checkbox for custom dataset
                         dcc.Checklist(
                             value=[],
@@ -156,15 +165,17 @@ app.layout = dbc.Container([
                                 'maxHeight': '500px',  # Setzt eine maximale Höhe
                                 'overflowX': 'auto'
                             },
-                            style_as_list_view=True,
+                            sort_action='native',
+                            filter_action='native',
                             style_header={'backgroundColor': 'rgb(4, 60, 124)', 'color': 'white', 'fontWeight': 'bold' },
-                            
+                            style_data_conditional= constants.DEFAULT_STYLE_DATA_CONDITIONAL,
+                            style_cell=constants.DEFAULT_CELL_STYLE
                         )
                     ])
                 ])
             ], width=8),
             
-             dbc.Col([
+            dbc.Col([
                 dbc.Card([
                     dbc.CardHeader("Detail view"),
                     dbc.CardBody([
@@ -177,6 +188,7 @@ app.layout = dbc.Container([
                             style_table={'overflowX': 'auto'},
                             style_as_list_view=True,
                             style_header={'backgroundColor': 'rgb(4, 60, 124)', 'color': 'white', 'fontWeight': 'bold' },
+                            style_data_conditional= constants.DEFAULT_STYLE_DATA_CONDITIONAL
                         )
                     ])
                 ])
@@ -213,8 +225,11 @@ app.layout = dbc.Container([
                                 'maxHeight': '500px',  # Setzt eine maximale Höhe
                                 'overflowX': 'auto'
                             },
-                            style_as_list_view=True,
+                            sort_action='native',
+                            filter_action='native',
                             style_header={'backgroundColor': 'rgb(4, 60, 124)', 'color': 'white', 'fontWeight': 'bold' },
+                            style_data_conditional= constants.DEFAULT_STYLE_DATA_CONDITIONAL,
+                            style_cell=constants.DEFAULT_CELL_STYLE
                         )
                     ])
                 ])
@@ -234,6 +249,7 @@ app.layout = dbc.Container([
                             style_table={'overflowX': 'auto'},
                             style_as_list_view=True,
                             style_header={'backgroundColor': 'rgb(4, 60, 124)', 'color': 'white', 'fontWeight': 'bold' },
+                            style_data_conditional= constants.DEFAULT_STYLE_DATA_CONDITIONAL
                         )
                     ])
                 ])
@@ -308,9 +324,9 @@ app.layout = dbc.Container([
         
     ], style={
     'padding': '20px',
-    'width': '100%',  # Stellt sicher, dass der Container die restliche Breite einnimmt
-    'box-sizing': 'border-box'}),
-], fluid=True )
+    'width': '95%',  # Stellt sicher, dass der Container die restliche Breite einnimmt
+    'box-sizing': 'border-box'}, fluid=True),
+], fluid=True)
 
 # Callback function to update the table and bar plots when "Start Analysis" is clicked
 @app.callback(
@@ -366,37 +382,55 @@ def update_output(n_clicks, text_value, correction_method):
         
         bar_plot1_figure = {
             'data': [
-                go.Bar(y=df_high_level['KINASE'], x=log_adj_p_values_high_level, name='adj-p-value', orientation='h',
-                    marker=dict(color="#043c7c")),
-            ],
-            'layout': go.Layout(
-                title='Kinases by adjusted p-value high level',
-                xaxis={'title': 'p-value (-log10 scale)'},
-                yaxis={
-                    'title': 'Kinases',
-                    'tickangle': -45,  # Rotate tick labels if necessary
-                    'automargin': True  # Automatically adjust margins
-                },
-                margin=dict(l=50, r=10, t=30, b=50),
-                height=500
-            )
+                go.Bar(
+                    y=df_high_level['KINASE'], 
+                    x=log_adj_p_values_high_level, 
+                    name='adj-p-value', 
+                    orientation='h',
+                    marker=dict(
+                        color=log_adj_p_values_high_level,  # Färbe die Balken nach den log_adj_p_values
+                        colorscale=constants.BAR_COLORSCALE,  # Wähle eine Farbskala
+                        colorbar=dict(title='Log Adj. P-Value')  # Füge eine Farbskala hinzu
+                    )
+            ),
+        ],
+        'layout': go.Layout(
+            title='Kinases by adjusted p-value high level',
+            xaxis={'title': 'p-value (-log10 scale)'},
+            yaxis={
+                'title': 'Kinases',
+                'tickangle': -45,  # Rotiert die Tick-Beschriftungen
+                'automargin': True  # Passt die Ränder automatisch an
+            },
+            margin=dict(l=50, r=10, t=30, b=50),
+            height=500
+        )
         }
 
         bar_plot2_figure = {
             'data': [
-                go.Bar(y=df_a['KINASE'], x=log_adj_p_values, name='adj-p-value', orientation='h',
-                    marker=dict(color="#043c7c")),
+                go.Bar(
+                    y=df_a['KINASE'], 
+                    x=log_adj_p_values, 
+                    name='adj-p-value', 
+                    orientation='h',
+                    marker=dict(
+                        color=log_adj_p_values,  # Färbe die Balken nach den log_adj_p_values
+                        colorscale=constants.BAR_COLORSCALE,  # Wähle eine Farbskala
+                        colorbar=dict(title='Log Adj. P-Value')  # Füge eine Farbskala hinzu
+                    )
+                ),
             ],
             'layout': go.Layout(
                 title='Kinases by adjusted p-value (deep)',
-                xaxis={'title': 'benjamini hochberg adjusted p-value (-log10 scale)'},
-                yaxis={
-                    'title': 'Kinases',
-                    'tickangle': -45,  # Rotate tick labels if necessary
-                    'automargin': True  # Automatically adjust margins
-                },
-                margin=dict(l=50, r=10, t=30, b=50),
-                height=500
+                xaxis={'title': 'Benjamini Hochberg adjusted p-value (-log10 scale)'},
+            yaxis={
+                'title': 'Kinases',
+                'tickangle': -45,  # Rotiert die Tick-Beschriftungen
+                'automargin': True  # Passt die Ränder automatisch an
+            },
+            margin=dict(l=50, r=10, t=30, b=50),
+            height=500
             )
         }
 
@@ -406,6 +440,7 @@ def update_output(n_clicks, text_value, correction_method):
         df = df.sort_values(by='ADJ_P_VALUE')
         df['P_VALUE'] = df['P_VALUE'].astype(float).apply(util.format_p_value)
         df['ADJ_P_VALUE'] = df['ADJ_P_VALUE'].astype(float).apply(util.format_p_value)
+        df['CHI2_P_VALUE'] = df['CHI2_P_VALUE'].astype(float).apply(util.format_p_value)
         table_data = df.to_dict('records')
         
         
@@ -413,6 +448,7 @@ def update_output(n_clicks, text_value, correction_method):
         df_high_level = df_high_level.sort_values(by='ADJ_P_VALUE', ascending=True)
         df_high_level["P_VALUE"] = df_high_level["P_VALUE"].astype(float).apply(util.format_p_value)
         df_high_level["ADJ_P_VALUE"] = df_high_level["ADJ_P_VALUE"].astype(float).apply(util.format_p_value)
+        df_high_level["CHI2_P_VALUE"] = df_high_level["CHI2_P_VALUE"].astype(float).apply(util.format_p_value)
         table_data_high_level = df_high_level.to_dict('records')
         
         
@@ -475,14 +511,29 @@ def update_output(n_clicks, text_value, correction_method):
 
 
 @app.callback(
-    [Output('text-input', 'value')],
-    [Input('button-example', 'n_clicks')]
+    Output('text-input', 'value'),
+    [Input('button-example', 'n_clicks'),
+    Input('upload-text-file', 'contents')]
 )
-def load_example(n_clicks):
+def load_example(n_clicks, file_contents):
     if n_clicks > 0:
-        return [constants.placeholder]
+        # Wenn der Button gedrückt wurde, füge den Beispieltext ein
+        return constants.placeholder
+    elif file_contents:
+        # Wenn eine Datei hochgeladen wurde, dekodiere den Inhalt
+        content_type, content_string = file_contents.split(',')
+        decoded = base64.b64decode(content_string)
+
+        try:
+            # Versuche, den dekodierten Text zu extrahieren
+            text = decoded.decode('utf-8')
+        except UnicodeDecodeError:
+            return "Error: The file is not a valid text file."
+        
+        return text
     else:
-        return ""
+        # Wenn weder der Button gedrückt noch eine Datei hochgeladen wurde, gib einen leeren Wert zurück
+        return ''
 
 @app.callback(
     Output("download-tsv", "data"),
@@ -644,6 +695,7 @@ def update_correction_method(selected_method):
     update_output(1, constants.placeholder, selected_method)
     
     return selected_method, f"Selected correction method: {selected_method}"
+
 
 if __name__ == '__main__':
     raw_data = pd.read_csv(constants.KIN_SUB_DATASET_PATH, sep='\t')

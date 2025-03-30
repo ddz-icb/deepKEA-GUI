@@ -1,10 +1,7 @@
 import pandas as pd
 from statsmodels.stats.multitest import multipletests
 from scipy.stats import fisher_exact
-
-import pandas as pd
-from scipy.stats import fisher_exact
-from statsmodels.stats.multitest import multipletests
+import scipy.stats as stats
 
 def performKSEA(raw_data, sites, correction_method):
     # Merge raw_data and sites on both SUB_ACC_ID and SUB_MOD_RSD to match sites accurately
@@ -21,11 +18,17 @@ def performKSEA(raw_data, sites, correction_method):
     kinase_counts = pd.DataFrame(kinase_counts, columns=["KINASE", "COUNT", "UPID"])
     kinase_counts = kinase_counts.set_index("KINASE")
 
+    print("Initiating deep-level KSEA...")
+    # print lenghts of parameters
+    print("Length of kinases: ", len(kinases))
+    print("Length of merged: ", len(merged))
+    print("Length of raw_data: ", len(raw_data))
+
     # Calculate p-values using Fisher's exact test
     results = calculate_p_vals(kinase_counts, kinases, merged, raw_data, "Deep")
 
     # Convert results to DataFrame and adjust p-values for multiple testing using FDR (Benjamini-Hochberg)
-    results = pd.DataFrame(results, columns=["KINASE", "ODDS_RATIO", "P_VALUE", "UPID", "FOUND", "SUB#"])
+    results = pd.DataFrame(results, columns=["KINASE","P_VALUE", "CHI2_P_VALUE","UPID", "FOUND", "SUB#"])
     results = results.sort_values(by="P_VALUE")
     results['ADJ_P_VALUE'] = multipletests(results['P_VALUE'], method=correction_method)[1]
     results = results.reset_index(drop=True)
@@ -70,28 +73,34 @@ def calculate_p_vals(kinase_counts, kinases, merged, _raw_data, mode = ""):
         # No. of annotated substrates for current kinase
         n = len(_raw_data[_raw_data["KINASE"] == kinase])
         
-        
+        # No. of annotated substrates for all kinases
         M = len(_raw_data)
-        ###
         
 
         table = [   [x,     n-x     ],
                     [N-x,   M-N-n+x] ]
 
-        print(f"Kinase: {kinase}")
-        print(table)
+        # print(f"Kinase: {kinase}")
+        # print(table)
         
         # Flatten the table to check if any value is zero (Fisher's exact test requires positive values)
         flat_list = [item for sublist in table for item in sublist]
 
-        if all(value > 0 for value in flat_list):
-            odds_ratio, p_value = fisher_exact(table, alternative='two-sided')
-            odds_ratio = round(odds_ratio, 2)
-            print(f"P-value: {p_value}")
-            results.append([kinase, odds_ratio, p_value, upid, x, n])
+        if all(value >= 0 for value in flat_list):
+            _, fisch_exc_p_value = fisher_exact(table, alternative='greater')
+            chi2, chi2_p_value, _, _ = stats.chi2_contingency(table)
+            
+            
+            if(fisch_exc_p_value == 1):
+                print("######" + str(kinase) + "############")
+                print(table)
+                print(f"P-value: {fisch_exc_p_value}")
+                print("############################")
+            
+            results.append([kinase, fisch_exc_p_value,chi2_p_value, upid, x, n])
         else:
             # Default values when Fisher's test is not applicable
-            results.append([kinase, -1, 1, upid, x, n])
+            results.append([kinase, -1, 2, 2, upid, x, n])
 
     return results
 
@@ -119,11 +128,17 @@ def performKSEA_high_level(raw_data, sites, correction_method):
     kinase_counts = pd.DataFrame(kinase_counts, columns=["KINASE", "COUNT", "UPID"])
     kinase_counts = kinase_counts.set_index("KINASE")
 
+    print("Initiating high-level KSEA...")
+    # print lenghts of parameters
+    print("Length of kinases: ", len(kinases))
+    print("Length of merged: ", len(merged))
+    print("Length of raw_data_cpy: ", len(raw_data_cpy))
+
     # Calculate p-values using Fisher's exact test
     results = calculate_p_vals(kinase_counts, kinases, merged, raw_data_cpy, "High")
 
     # Convert results to DataFrame and adjust p-values for multiple testing using FDR (Benjamini-Hochberg)
-    results = pd.DataFrame(results, columns=["KINASE", "ODDS_RATIO", "P_VALUE", "UPID", "FOUND", "SUB#"])
+    results = pd.DataFrame(results, columns=["KINASE","P_VALUE", "CHI2_P_VALUE","UPID", "FOUND", "SUB#"])
     results = results.sort_values(by="P_VALUE")
     results['ADJ_P_VALUE'] = multipletests(results['P_VALUE'], method=correction_method)[1]
     results = results.reset_index(drop=True)
@@ -131,38 +146,40 @@ def performKSEA_high_level(raw_data, sites, correction_method):
     return results, merged
 
 
+##############
+# DEPRECATED #
+##############
+# def calculate_p_vals_high_level(kinase_counts, kinases, merged_unique_substrates, raw_data):
+#     results = []
+#     for index, row in kinases.iterrows():
+#         count = row["count"]
+#         kinase = row["KINASE"]
+#         upid = row["KIN_ACC_ID"]
+        
+#         # Number of distinct substrates in the sample for this kinase
+#         sub_in_sample = count
+        
+#         # Number of distinct substrates in the sample with other kinases
+#         sub_in_sample_w_other_kinase = len(merged_unique_substrates[merged_unique_substrates["KINASE"] != kinase])
+        
+#         # Number of distinct substrates not in the sample for this kinase
+#         sub_not_in_sample = kinase_counts.loc[kinase, "COUNT"] - count
+        
+#         # Distinct substrates with other kinases (total number of raw data points minus this kinase's count)
+#         subs_w_other_kinase = len(raw_data.drop_duplicates(subset="SUB_ACC_ID")) - kinase_counts.loc[kinase, "COUNT"]
 
-def calculate_p_vals_high_level(kinase_counts, kinases, merged_unique_substrates, raw_data):
-    results = []
-    for index, row in kinases.iterrows():
-        count = row["count"]
-        kinase = row["KINASE"]
-        upid = row["KIN_ACC_ID"]
+#         # Fisher's exact test
+#         table = [[sub_in_sample, sub_in_sample_w_other_kinase], [sub_not_in_sample, subs_w_other_kinase]]
+#         flat_list = [item for sublist in table for item in sublist]  # Flatten table for the check
         
-        # Number of distinct substrates in the sample for this kinase
-        sub_in_sample = count
-        
-        # Number of distinct substrates in the sample with other kinases
-        sub_in_sample_w_other_kinase = len(merged_unique_substrates[merged_unique_substrates["KINASE"] != kinase])
-        
-        # Number of distinct substrates not in the sample for this kinase
-        sub_not_in_sample = kinase_counts.loc[kinase, "COUNT"] - count
-        
-        # Distinct substrates with other kinases (total number of raw data points minus this kinase's count)
-        subs_w_other_kinase = len(raw_data.drop_duplicates(subset="SUB_ACC_ID")) - kinase_counts.loc[kinase, "COUNT"]
-
-        # Fisher's exact test
-        table = [[sub_in_sample, sub_in_sample_w_other_kinase], [sub_not_in_sample, subs_w_other_kinase]]
-        flat_list = [item for sublist in table for item in sublist]  # Flatten table for the check
-        
-        if all(value > 0 for value in flat_list):
-            odds_ratio, p_value = fisher_exact(table, alternative='greater')
-            odds_ratio = round(odds_ratio, 2)
-            results.append([kinase, odds_ratio, p_value, upid, sub_in_sample, sub_in_sample + sub_not_in_sample])
-        else:
-            results.append([kinase, -1, 1, upid, sub_in_sample, sub_in_sample + sub_not_in_sample])
+#         if all(value > 0 for value in flat_list):
+#             odds_ratio, p_value = fisher_exact(table, alternative='greater')
+#             odds_ratio = round(odds_ratio, 2)
+#             results.append([kinase, odds_ratio, p_value, upid, sub_in_sample, sub_in_sample + sub_not_in_sample])
+#         else:
+#             results.append([kinase, -1, 1, upid, sub_in_sample, sub_in_sample + sub_not_in_sample])
     
-    return results
+#     return results
 
 
 
