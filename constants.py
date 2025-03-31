@@ -53,6 +53,12 @@ DEFAULT_STYLE_DATA_CONDITIONAL = [
     {
         'if': {'column_id': 'KINASE'},
         'fontWeight': 'bold'
+    },
+    {
+        "if": {"column_id": "UPID"},
+        "color": "black",
+        "textAlign": "center",
+        "textDecoration": "none",
     }
 ]
 
