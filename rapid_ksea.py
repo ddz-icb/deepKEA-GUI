@@ -346,11 +346,12 @@ def update_output(n_clicks, text_value, correction_method):
         site_level_results, sub_level_results, site_hits, sub_hits = util.start_eval(text_value, raw_data, correction_method)
         df_a = site_level_results.copy()
 
-        global downloadable_df_deep_level, deep_hit_df
+
+        # Create global downloadable dataframes
+        global downloadable_df_deep_level
+        global deep_hit_df, downloadable_df_high_level, high_hit_df
         downloadable_df_deep_level = site_level_results.copy()
         downloadable_df_high_level = sub_level_results.copy()
-
-        global downloadable_df_high_level, high_hit_df
         deep_hit_df = site_hits.copy()
         high_hit_df = sub_hits.copy()
 
