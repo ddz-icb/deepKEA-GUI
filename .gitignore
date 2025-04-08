@@ -1,2 +1,5 @@
 
 /assets
+*.json
+/.vscode
+/.idea

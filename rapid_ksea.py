@@ -431,68 +431,6 @@ app.layout = dbc.Container(
                     className="g-4",
                 ),
                 html.Div(style={"margin-bottom": "20px"}),
-                # Row for tables
-                dbc.Row(
-                    [
-                        dbc.Col(
-                            [
-                                dbc.Card(
-                                    [
-                                        dbc.CardHeader("Kinase pathway enrichment"),
-                                        dbc.CardBody(
-                                            [
-                                                dash_table.DataTable(
-                                                    id="table-viewer-pathway",
-                                                    columns=[],
-                                                    data=[],
-                                                    page_size=10,
-                                                    style_table={"overflowX": "auto"},
-                                                    style_as_list_view=True,
-                                                    style_header={
-                                                        "backgroundColor": "rgb(4, 60, 124)",
-                                                        "color": "white",
-                                                        "fontWeight": "bold",
-                                                        "align": "left",
-                                                    },
-                                                )
-                                            ]
-                                        ),
-                                    ]
-                                )
-                            ],
-                            width=6,
-                        ),
-                        dbc.Col(
-                            [
-                                dbc.Card(
-                                    [
-                                        dbc.CardHeader("Input data pathway enrichment"),
-                                        dbc.CardBody(
-                                            [
-                                                dash_table.DataTable(
-                                                    id="table-viewer-pathway-input",
-                                                    columns=[],
-                                                    data=[],
-                                                    page_size=10,
-                                                    style_table={"overflowX": "auto"},
-                                                    style_as_list_view=True,
-                                                    style_header={
-                                                        "backgroundColor": "rgb(4, 60, 124)",
-                                                        "color": "white",
-                                                        "fontWeight": "bold",
-                                                        "align": "left",
-                                                    },
-                                                )
-                                            ]
-                                        ),
-                                    ]
-                                )
-                            ],
-                            width=6,
-                        ),
-                    ],
-                    className="g-4",
-                ),
             ],
             style={
                 "padding": "20px",
@@ -514,11 +452,7 @@ app.layout = dbc.Container(
         Output("table-viewer-high-level", "columns"),
         Output("table-viewer-high-level", "data"),
         Output("bar-plot-site-enrichment", "figure"),
-        Output("bar-plot-sub-enrichment", "figure"),
-        Output("table-viewer-pathway", "columns"),
-        Output("table-viewer-pathway", "data"),
-        Output("table-viewer-pathway-input", "columns"),
-        Output("table-viewer-pathway-input", "data"),
+        Output("bar-plot-sub-enrichment", "figure")
     ],
     [Input("button-start-analysis", "n_clicks")],
     [State("text-input", "value")],
@@ -607,59 +541,59 @@ def update_output(n_clicks, text_value, correction_method):
 
         # update_download_button(0)
 
-        pathways = []
-        df_p = downloadable_df_deep_level.drop(
-            columns=["P_VALUE", "FOUND", "SUB#", "ADJ_P_VALUE"]
-        )
+        # pathways = []
+        # df_p = downloadable_df_deep_level.drop(
+        #     columns=["P_VALUE", "FOUND", "SUB#", "ADJ_P_VALUE"]
+        # )
 
-        pathways = util.get_pathways_by_upid(reactome, df_p)
+        # pathways = util.get_pathways_by_upid(reactome, df_p)
 
-        # count occurences of pathways
-        pathway_counts = {}
-        for pathway in pathways:
-            if pathway in pathway_counts:
-                pathway_counts[pathway] += 1
-            else:
-                pathway_counts[pathway] = 1
+        # # count occurences of pathways
+        # pathway_counts = {}
+        # for pathway in pathways:
+        #     if pathway in pathway_counts:
+        #         pathway_counts[pathway] += 1
+        #     else:
+        #         pathway_counts[pathway] = 1
 
-        pathway_counts = pd.DataFrame(
-            list(pathway_counts.items()), columns=["Pathway", "Count"]
-        )
-        pathway_counts = pathway_counts.sort_values(by="Count", ascending=False)
+        # pathway_counts = pd.DataFrame(
+        #     list(pathway_counts.items()), columns=["Pathway", "Count"]
+        # )
+        # pathway_counts = pathway_counts.sort_values(by="Count", ascending=False)
 
-        # create table data for pathway
-        table_columns_pathway = [{"name": i, "id": i} for i in pathway_counts.columns]
-        table_data_pathway = pathway_counts.to_dict("records")
+        # # create table data for pathway
+        # table_columns_pathway = [{"name": i, "id": i} for i in pathway_counts.columns]
+        # table_data_pathway = pathway_counts.to_dict("records")
 
-        df_p_input = util.read_sites(text_value)
+        # df_p_input = util.read_sites(text_value)
 
-        df_p_input = df_p_input.drop(columns=["UPID", "SUB_MOD_RSD"])
-        # rename SUB_ACC_ID column to UPID
-        df_p_input = df_p_input.rename(columns={"SUB_ACC_ID": "UPID"})
-        df_p_input = df_p_input.drop_duplicates()
+        # df_p_input = df_p_input.drop(columns=["UPID", "SUB_MOD_RSD"])
+        # # rename SUB_ACC_ID column to UPID
+        # df_p_input = df_p_input.rename(columns={"SUB_ACC_ID": "UPID"})
+        # df_p_input = df_p_input.drop_duplicates()
 
-        input_pathways = util.get_pathways_by_upid(reactome, df_p_input)
+        # input_pathways = util.get_pathways_by_upid(reactome, df_p_input)
 
-        # count occurences of pathways
-        pathway_counts_input = {}
-        for pathway in input_pathways:
-            if pathway in pathway_counts_input:
-                pathway_counts_input[pathway] += 1
-            else:
-                pathway_counts_input[pathway] = 1
+        # # count occurences of pathways
+        # pathway_counts_input = {}
+        # for pathway in input_pathways:
+        #     if pathway in pathway_counts_input:
+        #         pathway_counts_input[pathway] += 1
+        #     else:
+        #         pathway_counts_input[pathway] = 1
 
-        pathway_counts_input = pd.DataFrame(
-            list(pathway_counts_input.items()), columns=["Pathway", "Count"]
-        )
-        pathway_counts_input = pathway_counts_input.sort_values(
-            by="Count", ascending=False
-        )
+        # pathway_counts_input = pd.DataFrame(
+        #     list(pathway_counts_input.items()), columns=["Pathway", "Count"]
+        # )
+        # pathway_counts_input = pathway_counts_input.sort_values(
+        #     by="Count", ascending=False
+        # )
 
-        # create table data for pathway
-        table_columns_pathway_input = [
-            {"name": i, "id": i} for i in pathway_counts_input.columns
-        ]
-        table_data_pathway_input = pathway_counts_input.to_dict("records")
+        # # create table data for pathway
+        # table_columns_pathway_input = [
+        #     {"name": i, "id": i} for i in pathway_counts_input.columns
+        # ]
+        # table_data_pathway_input = pathway_counts_input.to_dict("records")
 
         return (
             table_columns,
@@ -667,11 +601,7 @@ def update_output(n_clicks, text_value, correction_method):
             table_columns_high_level,
             table_data_high_level,
             bar_plot_site_enrichment,
-            bar_plot_sub_enrichment,
-            table_columns_pathway,
-            table_data_pathway,
-            table_columns_pathway_input,
-            table_data_pathway_input,
+            bar_plot_sub_enrichment
         )
     else:
         empty_figure = {"data": [], "layout": go.Layout(title="Empty")}
@@ -952,14 +882,6 @@ if __name__ == "__main__":
             "SUB_MOD_RSD",
         ]
     ]
-
-    reactome = pd.read_csv(
-        constants.REACTOME_PATH,
-        sep="\t",
-        header=None,
-        names=["UPID", "REACTOME_ID", "LINK", "REACTOME_NAME", "0", "SPECIES"],
-    )
-    reactome = reactome[reactome["SPECIES"] == constants.ORGANISM_REACTOME]
 
     app.run_server(debug=True)
     # app.run_server(host="192.168.2.47", port = 8080, debug=True)
