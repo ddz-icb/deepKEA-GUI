@@ -2,7 +2,7 @@ import pandas as pd
 from statsmodels.stats.multitest import multipletests
 from scipy.stats import fisher_exact
 import scipy.stats as stats
-
+import constants
 
 def set_column_to_markdown(columns_dict, column):
     for col in columns_dict:
@@ -44,7 +44,8 @@ def performKSEA(raw_data, sites, correction_method):
 
     # Convert results to DataFrame and adjust p-values for multiple testing using FDR (Benjamini-Hochberg)
     results = pd.DataFrame(results, columns=["KINASE", "P_VALUE", "CHI2_P_VALUE", "UPID", "FOUND", "SUB#"])
-    results = results.sort_values(by="P_VALUE")
+    # results = results.sort_values(by="P_VALUE")
+    # results['ADJ_P_VALUE'] = results['P_VALUE']
     results['ADJ_P_VALUE'] = multipletests(results['P_VALUE'], method=correction_method)[1]
     results = results.reset_index(drop=True)
 
@@ -105,6 +106,17 @@ def calculate_p_vals(kinases, merged, _raw_data, mode=""):
                 print(table)
                 print(f"P-value: {fisch_exc_p_value}")
                 print("############################")
+                
+            #print(type(fisch_exc_p_value))
+            if kinase == "ATM":
+                print(type(chi2_p_value))
+                print("P= ", chi2_p_value)
+            
+                
+            if chi2_p_value.astype(float) < 0 or fisch_exc_p_value.astype(float) > 1:
+                print("error")
+                print("######" + str(kinase) + "############")
+                print(table)
 
             results.append([kinase, fisch_exc_p_value, chi2_p_value, upid, x, n])
         else:
@@ -148,6 +160,7 @@ def performKSEA_high_level(raw_data, sites, correction_method):
     # Convert results to DataFrame and adjust p-values for multiple testing using FDR (Benjamini-Hochberg)
     results = pd.DataFrame(results, columns=["KINASE", "P_VALUE", "CHI2_P_VALUE", "UPID", "FOUND", "SUB#"])
     results = results.sort_values(by="P_VALUE")
+    # results['ADJ_P_VALUE'] = results['P_VALUE']
     results['ADJ_P_VALUE'] = multipletests(results['P_VALUE'], method=correction_method)[1]
     results = results.reset_index(drop=True)
 
@@ -200,22 +213,55 @@ def read_sites(content):
     return df
 
 
-def start_eval(content, raw_data, correction_method):
+def start_eval(content, raw_data, correction_method, rounding=False):
     sites = read_sites(content)
 
     if not sites.empty:
-        result, deep_hits = performKSEA(raw_data, sites, correction_method)
-        result_high_level, high_level_hits = performKSEA_high_level(raw_data, sites, correction_method)
+        site_result, site_hits = performKSEA(raw_data, sites, correction_method)
+        sub_results, sub_hits = performKSEA_high_level(raw_data, sites, correction_method)
 
+        
+        #print(sub_results[sub_results["KINASE"] == "ATM"])
+        
+        if site_result.isnull().values.any() or sub_results.isnull().values.any():
+            print("Warning: site_result or sub_results contains null or NA values.")
+        
         deep_hit_columns = ['SUB_GENE', 'SUB_MOD_RSD', 'KINASE']
-        deep_hits = deep_hits[deep_hit_columns]
+        site_hits = site_hits[deep_hit_columns]
 
         high_level_hit_columns = ['SUB_GENE', 'KINASE']
-        high_level_hits = high_level_hits[high_level_hit_columns]
+        sub_hits = sub_hits[high_level_hit_columns]
 
-        return pd.DataFrame(result), pd.DataFrame(result_high_level), deep_hits, high_level_hits
+        # if rounding:
+            # round_p_values(site_result, sub_results)
+
+        print("HELO")
+        print(sub_results[sub_results["KINASE"] == "ATM"])
+
+        return site_result, sub_results, site_hits, sub_hits
     else:
         return pd.DataFrame()
+
+
+def round_p_values(site_result, sub_results):
+    site_result["P_VALUE"] = (
+        site_result["P_VALUE"].astype(float).apply(format_p_value)
+    )
+    site_result["ADJ_P_VALUE"] = (
+        site_result["ADJ_P_VALUE"].astype(float).apply(format_p_value)
+    )
+    site_result["CHI2_P_VALUE"] = (
+        site_result["CHI2_P_VALUE"].astype(float).apply(format_p_value)
+    )
+    sub_results["P_VALUE"] = (
+        sub_results["P_VALUE"].astype(float).apply(format_p_value)
+    )
+    sub_results["ADJ_P_VALUE"] = (
+        site_result["ADJ_P_VALUE"].astype(float).apply(format_p_value)
+    )
+    sub_results["CHI2_P_VALUE"] = (
+        site_result["CHI2_P_VALUE"].astype(float).apply(format_p_value)
+    )
 
 
 def format_p_value(value):
@@ -231,3 +277,26 @@ def get_pathways_by_upid(lookup, df_p):
     df_p = df_p.dropna()
     # return REACTOME_NAME column as a list
     return df_p['REACTOME_NAME'].tolist()
+
+def load_psp_dataset():
+    try:
+        raw_data = pd.read_csv(constants.KIN_SUB_DATASET_PATH, sep="\t")
+        raw_data = raw_data[raw_data["SUB_ORGANISM"] == constants.SUB_ORGANISM]
+        raw_data = raw_data[raw_data["KIN_ORGANISM"] == constants.KIN_ORGANISM]
+        raw_data = raw_data[
+            [
+                "GENE",
+                "KINASE",
+                "KIN_ACC_ID",
+                "KIN_ORGANISM",
+                "SUBSTRATE",
+                "SUB_ACC_ID",
+                "SUB_GENE",
+                "SUB_ORGANISM",
+                "SUB_MOD_RSD",
+            ]
+        ]
+        
+        return raw_data.to_dict("records")
+    except Exception as e:
+        print("CRITICAL ERROR LOADING PSP DATASET: ", e)

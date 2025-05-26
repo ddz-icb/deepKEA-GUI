@@ -69,3 +69,6 @@ DEFAULT_CELL_STYLE = {
     }
 
 BAR_COLORSCALE = "Viridis"
+
+STORAGE_TYPE = "session"
+DEFAULT_DOWNLOAD_FILE_NAME = "results.txt"

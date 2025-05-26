@@ -15,17 +15,19 @@ import constants
 import math
 import base64
 import io
+import uuid
 
 # Initialize the Dash app
 dbc_css = "https://cdn.jsdelivr.net/gh/AnnMarieW/dash-bootstrap-templates/dbc.min.css"
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP, dbc_css])
-downloadable_df_deep_level = pd.DataFrame()
-downloadable_df_high_level = pd.DataFrame()
 
-raw_data = pd.DataFrame()
-deep_hit_df = pd.DataFrame()
-high_hit_df = pd.DataFrame()
-current_title = ""
+
+# site_level_results = pd.DataFrame()
+# sub_level_results = pd.DataFrame()
+# raw_data = pd.DataFrame()
+# site_level_hits = pd.DataFrame()
+# sub_level_hits = pd.DataFrame()
+# current_title = "enrichment_results"
 
 correction_methods = [
     {"label": "Benjamini-Hochberg (FDR-BH)", "value": "fdr_bh"},
@@ -33,9 +35,20 @@ correction_methods = [
     {"label": "Bonferroni", "value": "bonferroni"},
 ]
 
+
+
+
 app.layout = dbc.Container(
     [
-        dcc.Store(id="correction-method-store", data="fdr_bh"),  # Standard auf 'fdr_bh'
+        dcc.Store(id="session-id", storage_type=constants.STORAGE_TYPE),
+        
+        dcc.Store(id="site-level-results-store", storage_type=constants.STORAGE_TYPE),
+        dcc.Store(id="sub-level-results-store", storage_type=constants.STORAGE_TYPE),
+        dcc.Store(id="raw-data-store", data=util.load_psp_dataset(), storage_type=constants.STORAGE_TYPE),
+        dcc.Store(id="site-hit-data-store", storage_type=constants.STORAGE_TYPE),
+        dcc.Store(id="sub-hit-data-store", storage_type=constants.STORAGE_TYPE),
+        dcc.Store(id="correction-method-store", data="fdr_bh", storage_type=constants.STORAGE_TYPE),  
+        dcc.Store(id="current-title-store", data=constants.DEFAULT_DOWNLOAD_FILE_NAME, storage_type=constants.STORAGE_TYPE),
         # Main content
         dbc.Container(
             [
@@ -258,11 +271,11 @@ app.layout = dbc.Container(
                                                 # table viewer for deep hits
                                                 dash_table.DataTable(
                                                     id="table-viewer-deep-hits",
-                                                    columns=[
-                                                        {"name": i, "id": i}
-                                                        for i in deep_hit_df.columns
-                                                    ],
-                                                    data=deep_hit_df.to_dict("records"),
+                                                    # columns=[
+                                                    #     {"name": i, "id": i}
+                                                    #     for i in site_level_hits.columns
+                                                    # ],
+                                                    # data=site_level_hits.to_dict("records"),
                                                     page_size=10,
                                                     style_table={"overflowX": "auto"},
                                                     style_as_list_view=True,
@@ -351,11 +364,11 @@ app.layout = dbc.Container(
                                                 # table viewer for deep hits
                                                 dash_table.DataTable(
                                                     id="table-viewer-high-hits",
-                                                    columns=[
-                                                        {"name": i, "id": i}
-                                                        for i in deep_hit_df.columns
-                                                    ],
-                                                    data=deep_hit_df.to_dict("records"),
+                                                    # columns=[
+                                                    #     {"name": i, "id": i}
+                                                    #     for i in site_level_hits.columns
+                                                    # ],
+                                                    # data=site_level_hits.to_dict("records"),
                                                     page_size=10,
                                                     style_table={"overflowX": "auto"},
                                                     style_as_list_view=True,
@@ -386,7 +399,7 @@ app.layout = dbc.Container(
                                 dbc.Card(
                                     [
                                         dbc.CardHeader(
-                                            "Enriched kinases on substrate level by adj. p-value"
+                                            "Enriched kinases on modification level by adj. p-value"
                                         ),
                                         dbc.CardBody(
                                             [
@@ -409,7 +422,7 @@ app.layout = dbc.Container(
                                 dbc.Card(
                                     [
                                         dbc.CardHeader(
-                                            "Enriched kinases on modification level by adj. p-value"
+                                            "Enriched kinases on substrate level by adj. p-value"
                                         ),
                                         dbc.CardBody(
                                             [
@@ -447,6 +460,11 @@ app.layout = dbc.Container(
 # Callback function to update the table and bar plots when "Start Analysis" is clicked
 @app.callback(
     [
+        Output("site-level-results-store", "data"),
+        Output("sub-level-results-store", "data"),
+        Output("site-hit-data-store", "data"),
+        Output("sub-hit-data-store", "data"),
+        
         Output("table-viewer", "columns"),
         Output("table-viewer", "data"),
         Output("table-viewer-high-level", "columns"),
@@ -454,61 +472,35 @@ app.layout = dbc.Container(
         Output("bar-plot-site-enrichment", "figure"),
         Output("bar-plot-sub-enrichment", "figure")
     ],
-    [Input("button-start-analysis", "n_clicks")],
-    [State("text-input", "value")],
-    State("correction-method-store", "data"),
+    [
+        Input("button-start-analysis", "n_clicks"),
+    ],
+    [
+        State("text-input", "value"),
+        State("correction-method-store", "data"),
+        State("session-id", "data"),
+        State("raw-data-store", "data"),
+        State("current-title-store", "data"),
+    ]
 )
-def update_output(n_clicks, text_value, correction_method):
+def update_output(n_clicks, text_value, correction_method, session_id, raw_data, current_title):
     if n_clicks > 0:
+        
+        raw_data = pd.DataFrame.from_dict(raw_data)
+        print("Raw data loaded: ", str(len(raw_data)))
+        
         site_level_results, sub_level_results, site_hits, sub_hits = util.start_eval(
-            text_value, raw_data, correction_method
-        )
-        df_a = site_level_results.copy()
-
-        # Create global downloadable dataframes
-        global downloadable_df_deep_level
-        global deep_hit_df, downloadable_df_high_level, high_hit_df
-        downloadable_df_deep_level = site_level_results.copy()
-        downloadable_df_high_level = sub_level_results.copy()
-        deep_hit_df = site_hits.copy()
-        high_hit_df = sub_hits.copy()
-
-        site_level_results = site_level_results.sort_values(
-            by="P_VALUE", ascending=False
-        )
-        df_a = df_a.sort_values(by="ADJ_P_VALUE", ascending=False)
-        sub_level_results = sub_level_results.sort_values(
-            by="ADJ_P_VALUE", ascending=False
+            text_value, raw_data, correction_method, rounding=True
         )
 
-        log_adj_p_values = df_a["ADJ_P_VALUE"].apply(lambda x: -math.log10(x))
-        log_adj_p_values_high_level = sub_level_results["ADJ_P_VALUE"].apply(
-            lambda x: -math.log10(x)
-        )
-
-        bar_plot_site_enrichment, bar_plot_sub_enrichment = create_barplots(
-            df_a, log_adj_p_values, log_adj_p_values_high_level, sub_level_results
-        )
+        bar_plot_site_enrichment, bar_plot_sub_enrichment = create_barplots(site_level_results, sub_level_results)
 
         site_level_results = site_level_results.sort_values(
             by="P_VALUE", ascending=True
         )
-        df_a = df_a.sort_values(by="ADJ_P_VALUE", ascending=True)
         sub_level_results = sub_level_results.sort_values(
             by="ADJ_P_VALUE", ascending=True
         )
-
-        site_level_results["P_VALUE"] = (
-            site_level_results["P_VALUE"].astype(float).apply(util.format_p_value)
-        )
-        site_level_results["ADJ_P_VALUE"] = (
-            site_level_results["ADJ_P_VALUE"].astype(float).apply(util.format_p_value)
-        )
-        site_level_results["CHI2_P_VALUE"] = (
-            site_level_results["CHI2_P_VALUE"].astype(float).apply(util.format_p_value)
-        )
-        table_data = site_level_results.to_dict("records")
-
         # add uniprot-link column
         site_level_results = util.add_uniprot_link_col(site_level_results)
         sub_level_results = util.add_uniprot_link_col(sub_level_results)
@@ -525,81 +517,17 @@ def update_output(n_clicks, text_value, correction_method):
         )
         table_columns = util.set_column_to_markdown(table_columns, "UPID")
 
-        sub_level_results = sub_level_results.sort_values(
-            by="ADJ_P_VALUE", ascending=True
-        )
-        sub_level_results["P_VALUE"] = (
-            sub_level_results["P_VALUE"].astype(float).apply(util.format_p_value)
-        )
-        sub_level_results["ADJ_P_VALUE"] = (
-            sub_level_results["ADJ_P_VALUE"].astype(float).apply(util.format_p_value)
-        )
-        sub_level_results["CHI2_P_VALUE"] = (
-            sub_level_results["CHI2_P_VALUE"].astype(float).apply(util.format_p_value)
-        )
-        table_data_high_level = sub_level_results.to_dict("records")
-
-        # update_download_button(0)
-
-        # pathways = []
-        # df_p = downloadable_df_deep_level.drop(
-        #     columns=["P_VALUE", "FOUND", "SUB#", "ADJ_P_VALUE"]
-        # )
-
-        # pathways = util.get_pathways_by_upid(reactome, df_p)
-
-        # # count occurences of pathways
-        # pathway_counts = {}
-        # for pathway in pathways:
-        #     if pathway in pathway_counts:
-        #         pathway_counts[pathway] += 1
-        #     else:
-        #         pathway_counts[pathway] = 1
-
-        # pathway_counts = pd.DataFrame(
-        #     list(pathway_counts.items()), columns=["Pathway", "Count"]
-        # )
-        # pathway_counts = pathway_counts.sort_values(by="Count", ascending=False)
-
-        # # create table data for pathway
-        # table_columns_pathway = [{"name": i, "id": i} for i in pathway_counts.columns]
-        # table_data_pathway = pathway_counts.to_dict("records")
-
-        # df_p_input = util.read_sites(text_value)
-
-        # df_p_input = df_p_input.drop(columns=["UPID", "SUB_MOD_RSD"])
-        # # rename SUB_ACC_ID column to UPID
-        # df_p_input = df_p_input.rename(columns={"SUB_ACC_ID": "UPID"})
-        # df_p_input = df_p_input.drop_duplicates()
-
-        # input_pathways = util.get_pathways_by_upid(reactome, df_p_input)
-
-        # # count occurences of pathways
-        # pathway_counts_input = {}
-        # for pathway in input_pathways:
-        #     if pathway in pathway_counts_input:
-        #         pathway_counts_input[pathway] += 1
-        #     else:
-        #         pathway_counts_input[pathway] = 1
-
-        # pathway_counts_input = pd.DataFrame(
-        #     list(pathway_counts_input.items()), columns=["Pathway", "Count"]
-        # )
-        # pathway_counts_input = pathway_counts_input.sort_values(
-        #     by="Count", ascending=False
-        # )
-
-        # # create table data for pathway
-        # table_columns_pathway_input = [
-        #     {"name": i, "id": i} for i in pathway_counts_input.columns
-        # ]
-        # table_data_pathway_input = pathway_counts_input.to_dict("records")
+        print("Success")
 
         return (
+            site_level_results.to_dict("records"),
+            sub_level_results.to_dict("records"),
+            site_hits.to_dict("records"),
+            sub_hits.to_dict("records"),
             table_columns,
-            table_data,
+            site_level_results.to_dict("records"),
             table_columns_high_level,
-            table_data_high_level,
+            sub_level_results.to_dict("records"),
             bar_plot_site_enrichment,
             bar_plot_sub_enrichment
         )
@@ -609,65 +537,68 @@ def update_output(n_clicks, text_value, correction_method):
 
 
 def create_barplots(
-    df_a, log_adj_p_values, log_adj_p_values_high_level, sub_level_results
+    site_level_results, sub_level_results
 ):
-    bar_plot1_figure = {
+    site_level_results = site_level_results.sort_values(
+        by="ADJ_P_VALUE", ascending=False
+    )
+    sub_level_results = sub_level_results.sort_values(
+        by="ADJ_P_VALUE", ascending=False
+    )
+    
+
+    site_level_barplot = {
+        "data": [
+            go.Bar(
+                y=site_level_results["KINASE"],
+                x=site_level_results["ADJ_P_VALUE"].astype(float).apply(lambda x: -math.log10(x)),
+                name="adj-p-value",
+                orientation="h",
+                marker=dict(
+                    color=site_level_results["ADJ_P_VALUE"].astype(float).apply(lambda x: -math.log10(x)),  # Färbe die Balken nach den log_adj_p_values
+                    colorscale=constants.BAR_COLORSCALE,
+                ),
+            ),
+        ],
+        "layout": go.Layout(
+            title="Site-level enriched kinases",
+            xaxis={"title": "adjusted p-value (-log10 scale)"},
+            yaxis={
+                "title": "Kinases",
+                "tickangle": -45,
+                "automargin": True,
+            },
+            margin=dict(l=50, r=10, t=30, b=50),
+            height=500,
+        ),
+    }
+
+    sub_level_barplot = {
         "data": [
             go.Bar(
                 y=sub_level_results["KINASE"],
-                x=log_adj_p_values_high_level,
+                x=sub_level_results["ADJ_P_VALUE"].astype(float).apply(lambda x: -math.log10(x)),
                 name="adj-p-value",
                 orientation="h",
                 marker=dict(
-                    color=log_adj_p_values_high_level,  # Färbe die Balken nach den log_adj_p_values
-                    colorscale=constants.BAR_COLORSCALE,  # Wähle eine Farbskala
-                    colorbar=dict(
-                        title="Log Adj. P-Value"
-                    ),  # Füge eine Farbskala hinzu
+                    color=sub_level_results["ADJ_P_VALUE"].astype(float).apply(lambda x: -math.log10(x)),
+                    colorscale=constants.BAR_COLORSCALE,
                 ),
             ),
         ],
         "layout": go.Layout(
-            title="Kinases by adjusted p-value high level",
-            xaxis={"title": "p-value (-log10 scale)"},
+            title="Substrate-level enriched kinases",
+            xaxis={"title": "adjusted p-value (-log10 scale)"},
             yaxis={
                 "title": "Kinases",
-                "tickangle": -45,  # Rotiert die Tick-Beschriftungen
-                "automargin": True,  # Passt die Ränder automatisch an
+                "tickangle": -45,
+                "automargin": True,
             },
             margin=dict(l=50, r=10, t=30, b=50),
             height=500,
         ),
     }
-    bar_plot2_figure = {
-        "data": [
-            go.Bar(
-                y=df_a["KINASE"],
-                x=log_adj_p_values,
-                name="adj-p-value",
-                orientation="h",
-                marker=dict(
-                    color=log_adj_p_values,  # Färbe die Balken nach den log_adj_p_values
-                    colorscale=constants.BAR_COLORSCALE,  # Wähle eine Farbskala
-                    colorbar=dict(
-                        title="Log Adj. P-Value"
-                    ),  # Füge eine Farbskala hinzu
-                ),
-            ),
-        ],
-        "layout": go.Layout(
-            title="Kinases by adjusted p-value (deep)",
-            xaxis={"title": "Benjamini Hochberg adjusted p-value (-log10 scale)"},
-            yaxis={
-                "title": "Kinases",
-                "tickangle": -45,  # Rotiert die Tick-Beschriftungen
-                "automargin": True,  # Passt die Ränder automatisch an
-            },
-            margin=dict(l=50, r=10, t=30, b=50),
-            height=500,
-        ),
-    }
-    return bar_plot1_figure, bar_plot2_figure
+    return site_level_barplot, sub_level_barplot
 
 
 @app.callback(
@@ -698,20 +629,27 @@ def load_example(n_clicks, file_contents):
 @app.callback(
     Output("download-tsv", "data"),
     Input("button-download", "n_clicks"),
+    State("site-level-results-store", "data"),
+    State("site-hit-data-store", "data"),
+    State("current-title-store", "data"),
     prevent_initial_call=True,
 )
-def download_tsv(n_clicks):
-    if not downloadable_df_deep_level.empty:
+def download_tsv(n_clicks, site_level_results, site_level_hits, current_title):
+    
+    site_level_results = pd.DataFrame.from_dict(site_level_results)
+    site_level_hits = pd.DataFrame.from_dict(site_level_hits)
+    
+    if not site_level_results.empty:
         ######### Join hits on download file #############
         deep_hits_grouped = (
-            deep_hit_df.assign(
+            site_level_hits.assign(
                 GENE_SITE=lambda df: df["SUB_GENE"] + "-" + df["SUB_MOD_RSD"]
             )  # Kombiniere die zwei Spalten
             .groupby("KINASE")["GENE_SITE"]
             .apply(lambda x: ", ".join(x))  # Verbinde alle Hits mit Komma
             .reset_index()
         )
-        downloadable_df_deep_level_with_hits = downloadable_df_deep_level.merge(
+        downloadable_df_deep_level_with_hits = site_level_results.merge(
             deep_hits_grouped, on="KINASE", how="left"
         )
         ##################################################
@@ -734,17 +672,24 @@ def download_tsv(n_clicks):
 @app.callback(
     Output("download-tsv-high-level", "data"),
     Input("button-download-high-level", "n_clicks"),
+    State("sub-level-results-store", "data"),
+    State("sub-hit-data-store", "data"),
+    State("current-title-store", "data"),
     prevent_initial_call=True,
 )
-def download_tsv_high_level(n_clicks):
-    if not downloadable_df_high_level.empty:
+def download_tsv_high_level(n_clicks, sub_level_results, sub_level_hits, current_title):
+    
+    sub_level_results = pd.DataFrame.from_dict(sub_level_results)
+    sub_level_hits = pd.DataFrame.from_dict(sub_level_hits)
+    
+    if not sub_level_results.empty:
         ######### Join hits on download file #############
         high_hits_grouped = (
-            high_hit_df.groupby("KINASE")["SUB_GENE"]
+            sub_level_hits.groupby("KINASE")["SUB_GENE"]
             .apply(lambda x: ", ".join(x))
             .reset_index()
         )
-        downloadable_df_high_level_with_hits = downloadable_df_high_level.merge(
+        downloadable_df_high_level_with_hits = sub_level_results.merge(
             high_hits_grouped, on="KINASE", how="left"
         )
         ##################################################
@@ -788,15 +733,18 @@ def update_title(value):
     Output("table-viewer-deep-hits", "data"),
     Input("table-viewer", "active_cell"),
     State("table-viewer", "data"),
+    State("site-hit-data-store", "data"),
 )
-def display_row_details(active_cell, table_data):
+def display_row_details(active_cell, table_data, site_level_hits):
+    site_level_hits = pd.DataFrame.from_dict(site_level_hits)
+    
     if active_cell is not None:
         row_index = active_cell["row"]  # Holen der Zeilenindex der aktiven Zelle
         # get value of column KINASE from selected row
         kinase = table_data[row_index]["KINASE"]
 
         # display data from deep_hits for selected kinase
-        deep_hits = deep_hit_df[deep_hit_df["KINASE"] == kinase]
+        deep_hits = site_level_hits[site_level_hits["KINASE"] == kinase]
         columns = [{"name": i, "id": i} for i in deep_hits.columns]
         data = deep_hits.to_dict("records")
         return columns, data
@@ -810,21 +758,22 @@ def display_row_details(active_cell, table_data):
     Output("table-viewer-high-hits", "data"),
     Input("table-viewer-high-level", "active_cell"),
     State("table-viewer-high-level", "data"),
+    State("sub-hit-data-store", "data"),
 )
-def display_row_details_high(active_cell, table_data):
+def display_row_details_high(active_cell, table_data, sub_level_hits):
+    sub_level_hits = pd.DataFrame.from_dict(sub_level_hits)
     if active_cell is not None:
         row_index = active_cell["row"]  # Holen der Zeilenindex der aktiven Zelle
         # get value of column KINASE from selected row
         kinase = table_data[row_index]["KINASE"]
 
         # display data from deep_hits for selected kinase
-        high_hits = high_hit_df[high_hit_df["KINASE"] == kinase]
+        high_hits = sub_level_hits[sub_level_hits["KINASE"] == kinase]
         columns = [{"name": i, "id": i} for i in high_hits.columns]
         data = high_hits.to_dict("records")
         return columns, data
 
     return "Keine Zelle ausgewählt"
-
 
 @app.callback(
     Output("checkbox_custom_dataset", "className"),  # Dummy-Ausgabe, nur zur Ausführung
@@ -834,14 +783,13 @@ def handle_checkbox(checked):
     global raw_data
     raw_data = pd.DataFrame()
     if "checked" in checked:
-        print("Before ovveride: ", len(raw_data))
+        print("Before overide: ", len(raw_data))
         raw_data = pd.read_csv(constants.CUSTOM_DATASET_PATH, sep="\t")
         raw_data = raw_data.drop_duplicates()
         print("After overide: ", len(raw_data))
         raw_data = raw_data[raw_data["SUB_ORGANISM"] == constants.SUB_ORGANISM]
         raw_data = raw_data[raw_data["KIN_ORGANISM"] == constants.KIN_ORGANISM]
         print("After overide (2): ", len(raw_data))
-
         print("Custom dataset loaded")
     else:
         raw_data = pd.read_csv(constants.KIN_SUB_DATASET_PATH, sep="\t")
@@ -865,23 +813,20 @@ def update_correction_method(selected_method):
     return selected_method, f"Selected correction method: {selected_method}"
 
 
+@app.callback(
+    Output('session-id', 'data'),
+    Input('url', 'pathname'),
+    State('session-id', 'data')
+)
+def initialize_session(pathname, existing_id):
+    return existing_id if existing_id else str(uuid.uuid4())
+
+
+
+
+
 if __name__ == "__main__":
-    raw_data = pd.read_csv(constants.KIN_SUB_DATASET_PATH, sep="\t")
-    raw_data = raw_data[raw_data["SUB_ORGANISM"] == constants.SUB_ORGANISM]
-    raw_data = raw_data[raw_data["KIN_ORGANISM"] == constants.KIN_ORGANISM]
-    raw_data = raw_data[
-        [
-            "GENE",
-            "KINASE",
-            "KIN_ACC_ID",
-            "KIN_ORGANISM",
-            "SUBSTRATE",
-            "SUB_ACC_ID",
-            "SUB_GENE",
-            "SUB_ORGANISM",
-            "SUB_MOD_RSD",
-        ]
-    ]
+    
 
     app.run_server(debug=True)
     # app.run_server(host="192.168.2.47", port = 8080, debug=True)
