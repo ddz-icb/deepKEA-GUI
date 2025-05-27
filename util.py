@@ -378,3 +378,4 @@ def start_fuzzy_enrichment(content, raw_data, correction_method, rounding=False,
         return fuzzy_result, fuzzy_hits
     else:
         return pd.DataFrame()
+
