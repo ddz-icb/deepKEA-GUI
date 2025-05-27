@@ -49,6 +49,8 @@ app.layout = dbc.Container(
         dcc.Store(id="sub-hit-data-store", storage_type=constants.STORAGE_TYPE),
         dcc.Store(id="correction-method-store", data="fdr_bh", storage_type=constants.STORAGE_TYPE),  
         dcc.Store(id="current-title-store", data=constants.DEFAULT_DOWNLOAD_FILE_NAME, storage_type=constants.STORAGE_TYPE),
+        dcc.Store(id="floppy-settings-store", storage_type=constants.STORAGE_TYPE),
+
         # Main content
         dbc.Container(
             [
@@ -146,6 +148,31 @@ app.layout = dbc.Container(
                                                     ],
                                                     className="mt-3",
                                                 ),
+                                                
+                                                html.Label("Floppy Mode:", className="mt-3"),
+                                                dcc.Slider(
+                                                    id="floppy-slider",
+                                                    min=0,
+                                                    max=10,
+                                                    step=1,
+                                                    value=5,
+                                                    marks={i: str(i) for i in range(0, 11)},
+                                                    tooltip={"placement": "bottom"},
+                                                    className="mb-3"
+                                                ),
+
+                                                html.Label("Matching Mode:", className="mt-3"),
+                                                dcc.RadioItems(
+                                                    id="matching-mode-radio",
+                                                    options=[
+                                                        {"label": "Ignore", "value": "ignore"},
+                                                        {"label": "Exact", "value": "exact"},
+                                                        {"label": "ST-similar", "value": "st-similar"},
+                                                    ],
+                                                    value="exact",
+                                                    labelStyle={"display": "inline-block", "margin-right": "15px"},
+                                                ),
+                                                
                                                 # Dropdown für Korrektur Methode
                                                 html.Label(
                                                     "Correction Method:",
@@ -492,6 +519,8 @@ def update_output(n_clicks, text_value, correction_method, session_id, raw_data,
         site_level_results, sub_level_results, site_hits, sub_hits = util.start_eval(
             text_value, raw_data, correction_method, rounding=True
         )
+        
+        
 
         bar_plot_site_enrichment, bar_plot_sub_enrichment = create_barplots(site_level_results, sub_level_results)
 
@@ -821,7 +850,19 @@ def update_correction_method(selected_method):
 def initialize_session(pathname, existing_id):
     return existing_id if existing_id else str(uuid.uuid4())
 
+@app.callback(
+    Output("floppy-settings-store", "data"),
+    Input("floppy-slider", "value"),
+    Input("matching-mode-radio", "value"),
+    State("floppy-settings-store", "data"),
+)
+def update_floppy_settings(slider_value, radio_value, current_data):
+    if current_data is None:
+        current_data = {}
 
+    current_data["floppy_value"] = int(slider_value)
+    current_data["matching_mode"] = radio_value
+    return current_data
 
 
 

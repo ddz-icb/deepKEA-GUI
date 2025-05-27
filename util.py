@@ -89,7 +89,7 @@ def calculate_p_vals(kinases, merged, _raw_data, mode=""):
         M = len(_raw_data)
 
         table = [[x, n - x],
-                 [N - x, M - N - n + x]]
+                [N - x, M - N - n + x]]
 
         # print(f"Kinase: {kinase}")
         # print(table)
@@ -112,7 +112,6 @@ def calculate_p_vals(kinases, merged, _raw_data, mode=""):
                 print(type(chi2_p_value))
                 print("P= ", chi2_p_value)
             
-                
             if chi2_p_value.astype(float) < 0 or fisch_exc_p_value.astype(float) > 1:
                 print("error")
                 print("######" + str(kinase) + "############")
@@ -300,3 +299,82 @@ def load_psp_dataset():
         return raw_data.to_dict("records")
     except Exception as e:
         print("CRITICAL ERROR LOADING PSP DATASET: ", e)
+
+# Hilfsfunktion zum Parsen der Site-Spalte
+def parse_site(site_str):
+    return site_str[0], int(site_str[1:])
+
+# Aminosäurevergleich je nach Modus
+def aa_match(aa1, aa2, aa_mode):
+    if aa_mode == 'ignore':
+        return True
+    elif aa_mode == 'exact':
+        return aa1 == aa2
+    elif aa_mode == 'ST-similar':
+        if aa1 == aa2:
+            return True
+        if {aa1, aa2} <= {'S', 'T'}:
+            return True
+        return False
+    else:
+        raise ValueError(f"Unbekannter aa_mode: {aa_mode}")
+
+# Fuzzy Join Funktion
+def fuzzy_join(samples, background, tolerance=0, aa_mode='exact'):
+    samples = samples.copy()
+    background = background.copy()
+
+    # AA + Pos extrahieren
+    samples[['AA', 'Pos']] = samples['SUB_MOD_RSD'].apply(parse_site).apply(pd.Series)
+    background[['AA', 'Pos']] = background['SUB_MOD_RSD'].apply(parse_site).apply(pd.Series)
+
+    # Merge über UniprotID
+    merged = samples.merge(background, on='SUB_ACC_ID', suffixes=('_sample', '_bg'))
+
+    # Fuzzy-Matching
+    def match_and_flag(row):
+        if aa_match(row['AA_sample'], row['AA_bg'], aa_mode):
+            distance = abs(row['Pos_sample'] - row['Pos_bg'])
+            if distance <= tolerance:
+                return True, distance > 0
+        return False, None
+
+    # Apply Matching
+    results = merged.apply(lambda row: match_and_flag(row), axis=1)
+    merged[['match', 'IMPUTED']] = pd.DataFrame(results.tolist(), index=merged.index)
+
+    # Nur passende behalten
+    filtered = merged[merged['match']].copy()
+
+    return filtered[['SUB_ACC_ID', 'SUB_MOD_RSD_sample', 'SUB_MOD_RSD_bg', 'KINASE','KIN_ACC_ID','IMPUTED']]
+
+
+def perform_fuzzy_enrichment(raw_data, sites, correction_method, tolerance=0, aa_mode='exact'):
+    #### Platzhalter TODO FIXME 
+    fuzzy_results = fuzzy_join(
+        samples=sites,
+        background=pd.DataFrame(raw_data),
+        tolerance=tolerance,
+        aa_mode=aa_mode
+    )
+    print(fuzzy_results.columns)
+
+def start_fuzzy_enrichment(content, raw_data, correction_method, rounding=False, aa_mode='exact', tolerance=0):
+    sites = read_sites(content)
+
+    if not sites.empty:
+        fuzzy_result, fuzzy_hits = perform_fuzzy_enrichment(raw_data, sites, correction_method, aa_mode, tolerance)
+        
+        if fuzzy_result.isnull().values.any():
+            print("Warning: site_result or sub_results contains null or NA values.")
+        
+        fuzzy_hit_columns = ['SUB_GENE', 'SUB_MOD_RSD', 'KINASE', 'KIN_ACC_ID','KIN_SITE', 'IMPUTED']
+
+        fuzzy_hits = fuzzy_hits[fuzzy_hit_columns]        
+
+        # if rounding:
+            # round_p_values(site_result, sub_results)
+
+        return fuzzy_result, fuzzy_hits
+    else:
+        return pd.DataFrame()
