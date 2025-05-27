@@ -828,18 +828,30 @@ def handle_checkbox(checked):
 
     return "mt-3"  # Unverändert, dient nur als Dummy
 
-
-# Callback, um die Korrekturmethode in `dcc.Store` zu speichern und anzuzeigen
 @app.callback(
     Output("correction-method-store", "data"),
-    Output("correction-method-display", "children"),  # Debug-Anzeige
-    Input("correction-method-dropdown", "value"),
+    Output("correction-method-display", "children"),
+    Input("correction-method-dropdown", "value")
 )
-def update_correction_method(selected_method):
-    # simulate click on start analysis
-    update_output(1, constants.placeholder, selected_method)
-
+def update_correction_method_store(selected_method):
     return selected_method, f"Selected correction method: {selected_method}"
+
+# # Callback, um die Korrekturmethode in `dcc.Store` zu speichern und anzuzeigen
+# @app.callback(
+#     Output("correction-method-store", "data"),
+# Debug-Anzeige
+#     Input("correction-method-dropdown", "value"),
+# )
+# def update_correction_method(current_data,selected_method):
+#     # simulate click on start analysis
+#     # update_output(1, constants.placeholder, selected_method)
+#     if current_data is None:
+#         current_data = {}
+#     current_data["correction_method"] = selected_method
+#     print("Selected correction method:", selected_method)
+#     print("Current data in store:", current_data)
+#     return current_data, f"Selected correction method: {selected_method}"
+#     # return selected_method, f"Selected correction method: {selected_method}"
 
 
 @app.callback(
