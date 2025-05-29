@@ -59,7 +59,13 @@ DEFAULT_STYLE_DATA_CONDITIONAL = [
         "color": "black",
         "textAlign": "center",
         "textDecoration": "none",
-    }
+    },
+    {
+        'if': {
+        'column_id': 'IMPUTED',
+        'filter_query': '{IMPUTED} = "false"'},
+        'fontWeight': 'bold'
+    },
 ]
 
 

@@ -3,6 +3,9 @@ from statsmodels.stats.multitest import multipletests
 from scipy.stats import fisher_exact
 import scipy.stats as stats
 import constants
+from tqdm import tqdm
+
+tqdm.pandas()
 
 def set_column_to_markdown(columns_dict, column):
     for col in columns_dict:
@@ -208,15 +211,25 @@ def read_sites(content):
     df = pd.DataFrame(data, columns=['SUB_ACC_ID', 'UPID', 'SUB_MOD_RSD'])
     df = df.assign(SUB_MOD_RSD=df['SUB_MOD_RSD'].str.split(',')).explode('SUB_MOD_RSD')
 
+    # remove rows where second characters in SUB_MOD_RSD is not a digit
+    df = df[df['SUB_MOD_RSD'].str[1:].str.isdigit()]
+    
     df = df.drop_duplicates()
     return df
 
 
-def start_eval(content, raw_data, correction_method, rounding=False):
+def start_eval(content, raw_data, correction_method, rounding=False, aa_mode='exact', tolerance=0):
     sites = read_sites(content)
 
     if not sites.empty:
-        site_result, site_hits = performKSEA(raw_data, sites, correction_method)
+        site_result, site_hits = start_fuzzy_enrichment(
+            content=content,
+            raw_data=raw_data,
+            correction_method=correction_method,
+            rounding=rounding,
+            aa_mode=aa_mode,
+            tolerance=tolerance
+        )
         sub_results, sub_hits = performKSEA_high_level(raw_data, sites, correction_method)
 
         
@@ -225,8 +238,8 @@ def start_eval(content, raw_data, correction_method, rounding=False):
         if site_result.isnull().values.any() or sub_results.isnull().values.any():
             print("Warning: site_result or sub_results contains null or NA values.")
         
-        deep_hit_columns = ['SUB_GENE', 'SUB_MOD_RSD', 'KINASE']
-        site_hits = site_hits[deep_hit_columns]
+        site_hit_columns = ['SUB_GENE', 'SUB_MOD_RSD_sample', 'SUB_MOD_RSD_bg', 'KINASE', 'IMPUTED']
+        site_hits = site_hits[site_hit_columns]
 
         high_level_hit_columns = ['SUB_GENE', 'KINASE']
         sub_hits = sub_hits[high_level_hit_columns]
@@ -234,8 +247,6 @@ def start_eval(content, raw_data, correction_method, rounding=False):
         # if rounding:
             # round_p_values(site_result, sub_results)
 
-        print("HELO")
-        print(sub_results[sub_results["KINASE"] == "ATM"])
 
         return site_result, sub_results, site_hits, sub_hits
     else:
@@ -302,6 +313,16 @@ def load_psp_dataset():
 
 # Hilfsfunktion zum Parsen der Site-Spalte
 def parse_site(site_str):
+    site_str = site_str.strip()
+    # split string into letter and number
+    if not isinstance(site_str, str) or len(site_str) < 2:
+        raise ValueError(f"Ungültiges Format für site_str: {site_str}")
+    
+    # print(f"Parsing site_str: {site_str}")
+    # print(f"AA: {site_str[0]}")
+    # print(f"Position: {site_str[1:]}")
+    # print("A")
+    
     return site_str[0], int(site_str[1:])
 
 # Aminosäurevergleich je nach Modus
@@ -321,13 +342,14 @@ def aa_match(aa1, aa2, aa_mode):
 
 # Fuzzy Join Funktion
 def fuzzy_join(samples, background, tolerance=0, aa_mode='exact'):
+    
     samples = samples.copy()
     background = background.copy()
 
     # AA + Pos extrahieren
-    samples[['AA', 'Pos']] = samples['SUB_MOD_RSD'].apply(parse_site).apply(pd.Series)
-    background[['AA', 'Pos']] = background['SUB_MOD_RSD'].apply(parse_site).apply(pd.Series)
-
+    samples[['AA', 'Pos']] = samples['SUB_MOD_RSD'].progress_apply(parse_site).progress_apply(pd.Series)
+    background[['AA', 'Pos']] = background['SUB_MOD_RSD'].progress_apply(parse_site).progress_apply(pd.Series)
+    print("Applying fuzzy matching...")
     # Merge über UniprotID
     merged = samples.merge(background, on='SUB_ACC_ID', suffixes=('_sample', '_bg'))
 
@@ -340,41 +362,134 @@ def fuzzy_join(samples, background, tolerance=0, aa_mode='exact'):
         return False, None
 
     # Apply Matching
-    results = merged.apply(lambda row: match_and_flag(row), axis=1)
+    
+    tqdm.pandas(desc="Matching rows")
+    results = merged.progress_apply(lambda row: match_and_flag(row), axis=1)
     merged[['match', 'IMPUTED']] = pd.DataFrame(results.tolist(), index=merged.index)
 
     # Nur passende behalten
     filtered = merged[merged['match']].copy()
+    
+    print("Filtered columns: ", filtered.columns)
+    # rename gene column to SUB_GENE
+    filtered.rename(columns={'GENE': 'SUB_GENE'}, inplace=True)
+    
+    return filtered[['SUB_ACC_ID', 'SUB_MOD_RSD_sample', 'SUB_MOD_RSD_bg', 'KINASE','KIN_ACC_ID','IMPUTED', "SUB_GENE"]]
 
-    return filtered[['SUB_ACC_ID', 'SUB_MOD_RSD_sample', 'SUB_MOD_RSD_bg', 'KINASE','KIN_ACC_ID','IMPUTED']]
+
+def calculate_fuzzy_p_vals(kinases, merged, _raw_data, mode="limit"):
+    results = []
+
+    print("Calculating p-values...")
+    print("Mode: ", mode)
+
+    for _, row in kinases.iterrows():
+        count = row["count"]
+        kinase = row["KINASE"]
+        upid = row["KIN_ACC_ID"]
+
+        # No. of hits in sample for current kinase
+        x = count
+
+        # Sample size
+        N = len(merged)
+
+        # No. of annotated substrates for current kinase
+        n = len(_raw_data[_raw_data["KIN_ACC_ID"] == upid])
+
+        # No. of annotated substrates for all kinases
+        M = len(_raw_data)
+        
+        if mode == "limit":
+            if x > n:
+                x = n
+                print(f"Warning: x ({x}) is greater than n ({n}) for kinase {kinase}. Limiting x to n.")
+
+        table = [[x, n - x],
+                [N - x, M - N - n + x]]
+
+        # print(f"Kinase: {kinase}")
+        # print(table)
+
+        # Flatten the table to check if any value is zero (Fisher's exact test requires positive values)
+        flat_list = [item for sublist in table for item in sublist]
+
+        if all(value >= 0 for value in flat_list):
+            _, fisch_exc_p_value = fisher_exact(table, alternative='greater')
+            chi2, chi2_p_value, _, _ = stats.chi2_contingency(table)
+
+            if (fisch_exc_p_value == 1):
+                print("######" + str(kinase) + "############")
+                print(table)
+                print(f"P-value: {fisch_exc_p_value}")
+                print("############################")
+                
+            #print(type(fisch_exc_p_value))
+            if kinase == "ATM":
+                print(type(chi2_p_value))
+                print("P= ", chi2_p_value)
+            
+            if chi2_p_value.astype(float) < 0 or fisch_exc_p_value.astype(float) > 1:
+                print("error")
+                print("######" + str(kinase) + "############")
+                print(table)
+
+            results.append([kinase, fisch_exc_p_value, chi2_p_value, upid, x, n])
+        else:
+            # Default values when Fisher's test is not applicable
+            results.append([kinase, -1, 2, 2, upid, x, n])
+
+    return results
+
 
 
 def perform_fuzzy_enrichment(raw_data, sites, correction_method, tolerance=0, aa_mode='exact'):
     #### Platzhalter TODO FIXME 
-    fuzzy_results = fuzzy_join(
+    
+    fuzzy_merged = fuzzy_join(
         samples=sites,
         background=pd.DataFrame(raw_data),
         tolerance=tolerance,
         aa_mode=aa_mode
     )
-    print(fuzzy_results.columns)
+    print(fuzzy_merged)
+    kinases = fuzzy_merged.groupby(['KINASE', 'KIN_ACC_ID']).size().reset_index(name='count')
+    kinases = kinases.sort_values(by='count', ascending=False).reset_index(drop=True)
+    # Count the number of hits for each kinase
+    kinase_counts = count_kinases(kinases, raw_data)
+    # Convert kinase counts to DataFrame and set KINASE as index for easy access
+    kinase_counts = pd.DataFrame(kinase_counts, columns=["KINASE", "COUNT", "UPID"])
+    kinase_counts = kinase_counts.set_index("KINASE")
+    
+    results = calculate_fuzzy_p_vals(kinases, fuzzy_merged, raw_data)
+    # Convert results to DataFrame and adjust p-values for multiple testing using FDR (Benjamini-Hochberg)
+    results = pd.DataFrame(results, columns=["KINASE", "P_VALUE", "CHI2_P_VALUE", "UPID", "FOUND", "SUB#"])
+    # results = results.sort_values(by="P_VALUE")
+    # results['ADJ_P_VALUE'] = results['P_VALUE']
+    results['ADJ_P_VALUE'] = multipletests(results['P_VALUE'], method=correction_method)[1]
+    results = results.reset_index(drop=True)
+    return results, fuzzy_merged
 
 def start_fuzzy_enrichment(content, raw_data, correction_method, rounding=False, aa_mode='exact', tolerance=0):
     sites = read_sites(content)
 
     if not sites.empty:
-        fuzzy_result, fuzzy_hits = perform_fuzzy_enrichment(raw_data, sites, correction_method, aa_mode, tolerance)
+        fuzzy_result, fuzzy_hits = perform_fuzzy_enrichment(raw_data, sites, correction_method, aa_mode=aa_mode, tolerance=tolerance)
         
         if fuzzy_result.isnull().values.any():
             print("Warning: site_result or sub_results contains null or NA values.")
         
-        fuzzy_hit_columns = ['SUB_GENE', 'SUB_MOD_RSD', 'KINASE', 'KIN_ACC_ID','KIN_SITE', 'IMPUTED']
+        fuzzy_hit_columns = ['SUB_GENE', 'SUB_MOD_RSD_sample', 'KINASE', 'KIN_ACC_ID','SUB_MOD_RSD_bg', 'IMPUTED']
 
+        print("Fuzzy hit colums ", fuzzy_hits.columns)
+        
         fuzzy_hits = fuzzy_hits[fuzzy_hit_columns]        
 
         # if rounding:
             # round_p_values(site_result, sub_results)
 
+        
+        
         return fuzzy_result, fuzzy_hits
     else:
         return pd.DataFrame()

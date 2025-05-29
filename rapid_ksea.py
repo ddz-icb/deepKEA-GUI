@@ -388,7 +388,7 @@ app.layout = dbc.Container(
                                         dbc.CardHeader("Detail view"),
                                         dbc.CardBody(
                                             [
-                                                # table viewer for deep hits
+                                                # table viewer for high hits
                                                 dash_table.DataTable(
                                                     id="table-viewer-high-hits",
                                                     # columns=[
@@ -508,16 +508,28 @@ app.layout = dbc.Container(
         State("session-id", "data"),
         State("raw-data-store", "data"),
         State("current-title-store", "data"),
+        State("floppy-settings-store", "data")
     ]
 )
-def update_output(n_clicks, text_value, correction_method, session_id, raw_data, current_title):
+def update_output(n_clicks, text_value, correction_method, session_id, raw_data, current_title, floppy_settings):
     if n_clicks > 0:
         
         raw_data = pd.DataFrame.from_dict(raw_data)
-        print("Raw data loaded: ", str(len(raw_data)))
+        print("Raw data loaded - no of sites: ", str(len(raw_data)))
+        
+        print("Floppy value: ", floppy_settings["floppy_value"])
+        print("Matching mode: ", floppy_settings["matching_mode"])
+        
+        floppy_val = floppy_settings["floppy_value"]
+        match_mode = floppy_settings["matching_mode"]
         
         site_level_results, sub_level_results, site_hits, sub_hits = util.start_eval(
-            text_value, raw_data, correction_method, rounding=True
+            content=text_value,
+            raw_data=raw_data,
+            correction_method = correction_method,
+            rounding=True,
+            aa_mode=match_mode,
+            tolerance=floppy_val,
         )
         
         
