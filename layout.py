@@ -10,6 +10,14 @@ correction_methods = [
     {"label": "Bonferroni", "value": "bonferroni"},
 ]
 
+amino_acid_options = [
+    {'label': 'Serin (S)', 'value': 'S'},
+    {'label': 'Threonin (T)', 'value': 'T'},
+    {'label': 'Tyrosin (Y)', 'value': 'Y'},
+    {'label': 'Histidin (H)', 'value': 'H'} # Histidin ist seltener, aber manchmal relevant
+]
+default_amino_acids = ['S', 'T', 'Y', 'H'] # Alle standardmäßig ausgewählt
+
 def create_layout():
     """Erstellt und gibt das Hauptlayout der Anwendung zurück."""
     layout = dbc.Container(
@@ -28,7 +36,7 @@ def create_layout():
             dcc.Store(id="correction-method-store", data="fdr_bh", storage_type=constants.STORAGE_TYPE),
             dcc.Store(id="current-title-store", data=constants.DEFAULT_DOWNLOAD_FILE_NAME, storage_type=constants.STORAGE_TYPE),
             dcc.Store(id="floppy-settings-store", storage_type=constants.STORAGE_TYPE, data={"floppy_value": 5, "matching_mode": "exact"}), # Default Werte setzen
-            
+            dcc.Store(id="selected-amino-acids-store", storage_type=constants.STORAGE_TYPE, data=default_amino_acids),
             
             # --- Modal für Dateinamen-Eingabe ---
             dbc.Modal(
@@ -170,7 +178,16 @@ def create_layout():
                                                         labelStyle={"display": "inline-block", "margin-right": "15px"},
                                                     ),
                                                     
-                                                    # hier 
+                                                    # --- HIER: Aminosäure Checkboxen ---
+                                                    html.Label("Phosphorylatable Amino Acids:", className="mt-3"),
+                                                        dcc.Checklist(
+                                                            id="amino-acid-checklist",
+                                                            options=amino_acid_options,
+                                                            value=default_amino_acids, # Standardmäßig alle ausgewählt
+                                                            labelStyle={'display': 'inline-block', 'margin-right': '10px', 'margin-bottom': '5px'},
+                                                            className="mb-3" # Etwas Abstand nach unten
+                                                        ),
+                                                    # ------------------------------------
                                                     
                                                     html.Label(
                                                         "Correction Method:",

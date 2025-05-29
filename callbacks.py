@@ -47,28 +47,14 @@ def register_callbacks(app):
         print(f"New session started: {new_id}")
         return new_id
 
-    # # --- Input and Settings Callbacks ---
-    # @app.callback(
-    #     Output("raw-data-store", "data"),
-    #     Input("checkbox_custom_dataset", "value"),
-    #     prevent_initial_call=True # Erst reagieren, wenn User klickt
-    # )
-    # def handle_dataset_selection(checked_values):
-    #     if "harry_only" in checked_values:
-    #         print("Harry Only Mode selected. Loading custom dataset into store.")
-    #         raw_data_df = pd.read_csv(constants.CUSTOM_DATASET_PATH, sep="\t")
-    #         raw_data_df = raw_data_df.drop_duplicates()
-    #         raw_data_df = raw_data_df[raw_data_df["SUB_ORGANISM"] == constants.SUB_ORGANISM]
-    #         raw_data_df = raw_data_df[raw_data_df["KIN_ORGANISM"] == constants.KIN_ORGANISM]
-    #         print("Custom dataset loaded into store, rows:", len(raw_data_df))
-    #     else:
-    #         print("Harry Only Mode deselected. Loading default dataset into store.")
-    #         raw_data_df = util.load_psp_dataset()
-    #         print("Default dataset loaded into store, rows:", len(raw_data_df) if raw_data_df is not None else 0)
-        
-    #     if raw_data_df is not None and not raw_data_df.empty:
-    #         return raw_data_df.to_dict("records")
-    #     return []
+    @app.callback(
+        Output("selected-amino-acids-store", "data"),
+        Input("amino-acid-checklist", "value")
+    )
+    def update_selected_amino_acids(selected_values):
+        # Die `selected_values` ist eine Liste der 'value's der angeklickten Checkboxen
+        print(f"INFO: Selected amino acids updated in store: {selected_values}")
+        return selected_values
 
 
     @app.callback(
@@ -504,3 +490,5 @@ def register_callbacks(app):
         except Exception as e:
             print(f"Error in display_high_hit_details: {e}")
             return [], [{"Error": "An error occurred while fetching details."}]
+        
+    
