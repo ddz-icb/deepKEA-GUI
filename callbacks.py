@@ -26,10 +26,10 @@ def register_callbacks(app):
     def initialize_raw_data_store(session_id):
         if session_id:
             print("Initializing raw-data-store with default dataset.")
-            raw_data_df = util.load_psp_dataset()
-            print(f"Default dataset loaded, rows: {len(raw_data_df) if raw_data_df is not None else 0}")
-            if raw_data_df is not None and not raw_data_df.empty:
-                return raw_data_df.to_dict("records")
+            raw_data = util.load_psp_dataset()
+            print(f"Default dataset loaded, rows: {len(raw_data) if raw_data is not None else 0}")
+            if raw_data is not None and len(raw_data) > 0:
+                return raw_data
             else:
                 print("Failed to load default dataset or dataset is empty.")
                 return [] # Leere Liste als Fallback
@@ -125,18 +125,41 @@ def register_callbacks(app):
             Output("bar-plot-site-enrichment", "figure"),
             Output("bar-plot-sub-enrichment", "figure")
         ],
-        [Input("button-start-analysis", "n_clicks")],
+        [Input("button-start-analysis", "n_clicks"),
+         Input("session-id", "data")],
+        
         [
             State("text-input", "value"),
             State("correction-method-store", "data"),
             State("raw-data-store", "data"),
-            State("floppy-settings-store", "data")
+            State("floppy-settings-store", "data"),
+            State("selected-amino-acids-store", "data")
         ],
         prevent_initial_call=True
     )
-    def run_analysis(n_clicks, text_value, correction_method, raw_data_dict, floppy_settings):
+    def run_analysis(n_clicks,session_id, text_value, correction_method, raw_data_dict, floppy_settings, selected_amino_acids):
+        print("DEBUG: Starting analysis callback with inputs:")
+        print("n_clicks:", n_clicks)
+        print("text_value:", text_value)
+        print("correction_method:", correction_method)
+        print("raw_data_dict:", type(raw_data_dict), f"len={len(raw_data_dict) if raw_data_dict is not None else 'None'}")
+        print("floppy_settings:", floppy_settings)
+        print("selected_amino_acids:", selected_amino_acids)
+        
+        initialize_raw_data_store(session_id)
+        
+        
+        # check if at least one amino acid is selected
+        if not selected_amino_acids or len(selected_amino_acids) == 0:
+            print("Analysis not started: No amino acids selected.")
+            return (dash.no_update,) * 10
+        
         if not all([n_clicks > 0, text_value, raw_data_dict, floppy_settings]):
+            
+            print("PSP:", len(raw_data_dict))
+            print("text:", len(text_value))
             print("Analysis not started: Missing inputs.")
+            
             return (dash.no_update,) * 10 # Korrekte Anzahl an no_updates
 
         raw_data_df = pd.DataFrame.from_dict(raw_data_dict)
@@ -145,6 +168,7 @@ def register_callbacks(app):
             # Hier könntest du eine Meldung für den User ausgeben, z.B. über ein dcc.ConfirmDialogProvider
             return (dash.no_update,) * 10
 
+        print(f"INFO: Starting analysis with selected amino acids: {selected_amino_acids}")
         print(f"Raw data (from store) rows: {len(raw_data_df)}")
         
         floppy_val = floppy_settings.get("floppy_value", 5)
@@ -159,6 +183,7 @@ def register_callbacks(app):
                 rounding=True,
                 aa_mode=match_mode,
                 tolerance=floppy_val,
+                selected_amino_acids=selected_amino_acids
             )
         except Exception as e:
             print(f"Error during start_eval: {e}")

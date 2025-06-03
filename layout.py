@@ -2,7 +2,7 @@
 import dash_bootstrap_components as dbc
 from dash import dcc, html, dash_table
 import constants # Falls Konstanten im Layout verwendet werden
-
+import pandas as pd
 # correction_methods kann hier bleiben oder in constants.py verschoben werden
 correction_methods = [
     {"label": "Benjamini-Hochberg (FDR-BH)", "value": "fdr_bh"},
@@ -18,19 +18,27 @@ amino_acid_options = [
 ]
 default_amino_acids = ['S', 'T', 'Y', 'H'] # Alle standardmäßig ausgewählt
 
+df = pd.DataFrame({
+    'name': ['Alice', 'Bob'],
+    'age': [25, 30]
+})
+
+df_dict = df.to_dict('records')
+
+
 def create_layout():
     """Erstellt und gibt das Hauptlayout der Anwendung zurück."""
     layout = dbc.Container(
         [
             
             # ... (deine bestehenden dcc.Store Komponenten) ...
+            dcc.Location(id='url', refresh=False), # Wichtig für Callbacks, die auf die URL zugreifen
             dcc.Store(id="active-download-type-store", storage_type=constants.STORAGE_TYPE), # Neuer Store
             dcc.Store(id="download-filename-store", storage_type=constants.STORAGE_TYPE), # Um Dateinamen zwischenzuspeichern
-            dcc.Location(id='url', refresh=False), # Wichtig für Callbacks, die auf die URL zugreifen
             dcc.Store(id="session-id", storage_type=constants.STORAGE_TYPE),
             dcc.Store(id="site-level-results-store", storage_type=constants.STORAGE_TYPE),
             dcc.Store(id="sub-level-results-store", storage_type=constants.STORAGE_TYPE),
-            dcc.Store(id="raw-data-store", data=None, storage_type=constants.STORAGE_TYPE), # Initialisiere mit None, wird durch Callback befüllt
+            dcc.Store(id="raw-data-store", storage_type=constants.STORAGE_TYPE), # Initialisiere mit None, wird durch Callback befüllt
             dcc.Store(id="site-hit-data-store", storage_type=constants.STORAGE_TYPE),
             dcc.Store(id="sub-hit-data-store", storage_type=constants.STORAGE_TYPE),
             dcc.Store(id="correction-method-store", data="fdr_bh", storage_type=constants.STORAGE_TYPE),

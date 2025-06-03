@@ -218,7 +218,29 @@ def read_sites(content):
     return df
 
 
-def start_eval(content, raw_data, correction_method, rounding=False, aa_mode='exact', tolerance=0):
+def start_eval(content, raw_data, correction_method, rounding=False, aa_mode='exact', tolerance=0, selected_amino_acids = None):
+    print(f"Util: Starting evaluation with amino acids: {selected_amino_acids}")
+    
+    if raw_data is not None and not raw_data.empty and 'SUB_MOD_RSD' in raw_data.columns and selected_amino_acids:
+        # Extrahiere den ersten Buchstaben (die Aminosäure) aus SUB_MOD_RSD
+        # Diese Logik muss an dein genaues Datenformat angepasst werden!
+        # z.B. wenn SUB_MOD_RSD 'S123' ist, wollen wir 'S'
+        try:
+            # filter raw_data and only keep rows where SUB_MOD_RSD starts with one of the selected amino acids
+            original_rows = len(raw_data)
+            raw_data = raw_data[raw_data['SUB_MOD_RSD'].str[0].isin(selected_amino_acids)]
+            print(f"Filtered raw_data from {original_rows} to {len(raw_data)} rows based on selected amino acids: {selected_amino_acids}")
+            
+            
+            print(f"Util: Filtered raw_data from {original_rows} to {len(raw_data)} rows based on selected amino acids: {selected_amino_acids}")
+            if raw_data.empty:
+                print("WARNUNG: Nach Filterung der Aminosäuren ist raw_data leer.")
+                # Rückgabe leerer DataFrames, wenn nach Filterung nichts übrig bleibt
+                return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        except Exception as e:
+            print(f"FEHLER beim Filtern nach Aminosäuren: {e}")
+            # Eventuell hier auch leere DataFrames zurückgeben oder Fehler weiterleiten
+    
     sites = read_sites(content)
 
     if not sites.empty:
