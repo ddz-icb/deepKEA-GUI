@@ -45,7 +45,7 @@ def create_layout():
             dcc.Store(id="current-title-store", data=constants.DEFAULT_DOWNLOAD_FILE_NAME, storage_type=constants.STORAGE_TYPE),
             dcc.Store(id="floppy-settings-store", storage_type=constants.STORAGE_TYPE, data={"floppy_value": 5, "matching_mode": "exact"}), # Default Werte setzen
             dcc.Store(id="selected-amino-acids-store", storage_type=constants.STORAGE_TYPE, data=default_amino_acids),
-            
+            dcc.Store(id="limit-inferred-hits-store", storage_type=constants.STORAGE_TYPE, data={"max_hits": 7}), # Neuer Store für Limitierung der Hits
             # --- Modal für Dateinamen-Eingabe ---
             dbc.Modal(
                 [
@@ -174,6 +174,19 @@ def create_layout():
                                                         tooltip={"placement": "bottom"},
                                                         className="mb-3"
                                                     ),
+                                                    html.Label("Limit Inferred Hits:", className="mt-3"),
+                                                    dcc.Slider(
+                                                        id="limit-inferred-hits-slider",
+                                                        min=0,
+                                                        max=10,
+                                                        step=1,
+                                                        value=5, # Default-Wert
+                                                        marks={i: str(i) for i in range(0, 11)},
+                                                        tooltip={"placement": "bottom"},
+                                                        className="mb-3"
+                                                    ),
+                                                    
+                                                    
                                                     html.Label("Matching Mode:", className="mt-3"),
                                                     dcc.RadioItems(
                                                         id="matching-mode-radio",

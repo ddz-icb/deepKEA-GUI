@@ -133,21 +133,24 @@ def register_callbacks(app):
             State("correction-method-store", "data"),
             State("raw-data-store", "data"),
             State("floppy-settings-store", "data"),
-            State("selected-amino-acids-store", "data")
+            State("selected-amino-acids-store", "data"),
+            State("limit-inferred-hits-store", "data")
         ],
         prevent_initial_call=True
     )
-    def run_analysis(n_clicks,session_id, text_value, correction_method, raw_data_dict, floppy_settings, selected_amino_acids):
-        print("DEBUG: Starting analysis callback with inputs:")
-        print("n_clicks:", n_clicks)
-        print("text_value:", text_value)
-        print("correction_method:", correction_method)
-        print("raw_data_dict:", type(raw_data_dict), f"len={len(raw_data_dict) if raw_data_dict is not None else 'None'}")
-        print("floppy_settings:", floppy_settings)
-        print("selected_amino_acids:", selected_amino_acids)
+    def run_analysis(n_clicks,session_id, text_value, correction_method, raw_data_dict, floppy_settings, selected_amino_acids, limit_inferred_hits):
+        # print("DEBUG: Starting analysis callback with inputs:")
+        # print("n_clicks:", n_clicks)
+        # print("text_value:", text_value)
+        # print("correction_method:", correction_method)
+        # print("raw_data_dict:", type(raw_data_dict), f"len={len(raw_data_dict) if raw_data_dict is not None else 'None'}")
+        # print("floppy_settings:", floppy_settings)
+        # print("selected_amino_acids:", selected_amino_acids)
         
-        initialize_raw_data_store(session_id)
-        
+        # initialize_raw_data_store(session_id)
+        limit_inferred_hits = int(limit_inferred_hits["max_hits"])
+        print("Inferred hit limit= ", limit_inferred_hits)
+        print("+++++++HELP++++++")
         
         # check if at least one amino acid is selected
         if not selected_amino_acids or len(selected_amino_acids) == 0:
@@ -183,7 +186,8 @@ def register_callbacks(app):
                 rounding=True,
                 aa_mode=match_mode,
                 tolerance=floppy_val,
-                selected_amino_acids=selected_amino_acids
+                selected_amino_acids=selected_amino_acids,
+                inferred_hit_limit=limit_inferred_hits
             )
         except Exception as e:
             print(f"Error during start_eval: {e}")
@@ -368,15 +372,31 @@ def register_callbacks(app):
                     site_hits_df["SUB_MOD_RSD_sample"] = site_hits_df["SUB_MOD_RSD_sample"].astype(str)
                     site_hits_df["IMPUTED"] = site_hits_df["IMPUTED"].astype(bool) # Sicherstellen, dass IMPUTED boolean ist
 
-                    # Hilfsfunktion, um den Hit-String zu formatieren
+                    
+                    
                     def format_hit_string(row):
-                        site = row["SUB_MOD_RSD_sample"]
-                        if row["IMPUTED"]:
-                            return f"{site}(i)"
-                        return site
+                        # todo fixme gene names or upid
+                        upid = row.get("SUB_ACC_ID", "")
+                        # upid = row.get("SUB_GENE", "")
+                        site = row.get("SUB_MOD_RSD_sample", "")
+                        hit_str = f"{upid}-{site}"
+                        if row.get("IMPUTED", False):
+                            hit_str += "(i)"
+                        return hit_str
 
-                    # Anwenden der Formatierung auf jede Zeile
                     site_hits_df["FORMATTED_HIT"] = site_hits_df.apply(format_hit_string, axis=1)
+                    
+                    
+                    
+                    
+                    # def format_hit_string(row):
+                    #     site = row["SUB_MOD_RSD_sample"]
+                    #     if row["IMPUTED"]:
+                    #         return f"{site}(i)"
+                    #     return site
+
+                    # # Anwenden der Formatierung auf jede Zeile
+                    # site_hits_df["FORMATTED_HIT"] = site_hits_df.apply(format_hit_string, axis=1)
 
                     # Gruppieren nach KINASE und die formatierten Hits zusammenfassen
                     # Wichtig: `dropna()` um sicherzustellen, dass nur Zeilen mit gültigen KINASE-Werten berücksichtigt werden
@@ -430,9 +450,12 @@ def register_callbacks(app):
                     downloadable_df_sub = pd.merge(downloadable_df_sub, high_hits_grouped, on="KINASE", how="left")
 
             final_filename_sub = f"{filename_base}_sub_level.tsv"
-            print(f"INFO: Bereite Sub-Level Download vor: {final_filename_sub}")
+            
+            
+            print("Download mode: ", active_download_type)
+            print(f"INFO: Bereite Sub-Level Download vor: {final_filename_sub} with len {str(len(downloadable_df_sub))}")
             # Hier wird der Download für "download-tsv-high-level" ausgelöst
-            return dcc.send_data_frame(downloadable_df_sub.to_csv, final_filename_sub, sep="\t", index=False)
+            return dcc.send_data_frame(downloadable_df_sub.to_csv, final_filename_sub, sep="\t", index=False), dash.no_update, False
         
         else:
             print(f"WARNUNG: Unbekannter active_download_type: {active_download_type}")
@@ -516,4 +539,14 @@ def register_callbacks(app):
             print(f"Error in display_high_hit_details: {e}")
             return [], [{"Error": "An error occurred while fetching details."}]
         
-    
+    @app.callback(
+        Output("limit-inferred-hits-store", "data"),
+        Input("limit-inferred-hits-slider", "value"),
+        prevent_initial_call=True
+    )
+    def update_max_inferred_hit_store(slider_value):
+        settings = {
+            "max_hits": int(slider_value)
+        }
+        print(f"Maxium hits settings updated in store: {settings}")
+        return settings

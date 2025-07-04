@@ -206,19 +206,23 @@ def performKSEA_high_level(raw_data, sites, correction_method):
 
 
 def read_sites(content):
+    # Zerlege den Input in Einträge
     entries = [entry.strip() for entry in content.replace(';', '\n').splitlines() if entry]
+    # Spalte jeden Eintrag anhand von '_'
     data = [entry.split('_') for entry in entries]
     df = pd.DataFrame(data, columns=['SUB_ACC_ID', 'UPID', 'SUB_MOD_RSD'])
-    df = df.assign(SUB_MOD_RSD=df['SUB_MOD_RSD'].str.split(',')).explode('SUB_MOD_RSD')
+    
+    # Zerlege SUB_MOD_RSD an ',' und entferne Leerzeichen
+    df['SUB_MOD_RSD'] = df['SUB_MOD_RSD'].str.split(',').apply(lambda x: [s.strip() for s in x])
+    df = df.explode('SUB_MOD_RSD')
 
-    # remove rows where second characters in SUB_MOD_RSD is not a digit
+    # Behalte nur Zeilen, bei denen das zweite Zeichen eine Ziffer ist (z. B. S2246)
     df = df[df['SUB_MOD_RSD'].str[1:].str.isdigit()]
     
-    df = df.drop_duplicates()
-    return df
+    return df.drop_duplicates()
 
 
-def start_eval(content, raw_data, correction_method, rounding=False, aa_mode='exact', tolerance=0, selected_amino_acids = None):
+def start_eval(content, raw_data, correction_method, rounding=False, aa_mode='exact', tolerance=0, selected_amino_acids = None, inferred_hit_limit = None):
     print(f"Util: Starting evaluation with amino acids: {selected_amino_acids}")
     
     if raw_data is not None and not raw_data.empty and 'SUB_MOD_RSD' in raw_data.columns and selected_amino_acids:
@@ -250,7 +254,8 @@ def start_eval(content, raw_data, correction_method, rounding=False, aa_mode='ex
             correction_method=correction_method,
             rounding=rounding,
             aa_mode=aa_mode,
-            tolerance=tolerance
+            tolerance=tolerance,
+            inferred_hit_limit=inferred_hit_limit
         )
         sub_results, sub_hits = performKSEA_high_level(raw_data, sites, correction_method)
 
@@ -260,7 +265,7 @@ def start_eval(content, raw_data, correction_method, rounding=False, aa_mode='ex
         if site_result.isnull().values.any() or sub_results.isnull().values.any():
             print("Warning: site_result or sub_results contains null or NA values.")
         
-        site_hit_columns = ['SUB_GENE', 'SUB_MOD_RSD_sample', 'SUB_MOD_RSD_bg', 'KINASE', 'IMPUTED']
+        site_hit_columns = ['SUB_GENE',"SUB_ACC_ID",'SUB_MOD_RSD_sample', 'SUB_MOD_RSD_bg', 'KINASE', 'IMPUTED']
         site_hits = site_hits[site_hit_columns]
 
         high_level_hit_columns = ['SUB_GENE', 'KINASE']
@@ -362,8 +367,30 @@ def aa_match(aa1, aa2, aa_mode):
     else:
         raise ValueError(f"Unbekannter aa_mode: {aa_mode}")
 
+def limit_inferred_hits(df, inferred_hit_limit):
+    print("#################")
+    # set colum sample pos to sub_mod_rsd_sample without the first character
+    if "SUB_MOD_RSD_sample" not in df.columns:
+        raise ValueError("DataFrame must contain 'SUB_MOD_RSD_sample' column to limit inferred hits.")
+    df["sample_pos"] = df["SUB_MOD_RSD_sample"].str[1:].astype(int)
+    df["bg_pos"] = df["SUB_MOD_RSD_bg"].str[1:].astype(int)
+    df["pos_diff"] = abs(df["sample_pos"] - df["bg_pos"])
+    # For each kinase, only keep the first k=inferred_hit_limit rows that are imputed
+    def keep_first_k_imputed(group):
+        imputed = group[group["IMPUTED"] == True].sort_values("pos_diff", ascending=True)
+        not_imputed = group[group["IMPUTED"] == False]
+        # Keep only the first k imputed rows
+        imputed = imputed.head(inferred_hit_limit)
+        # Combine with not imputed rows
+        return pd.concat([not_imputed, imputed], ignore_index=True)
+
+    df = df.groupby("KINASE", group_keys=False).apply(keep_first_k_imputed)
+    df = df.drop(columns=["sample_pos", "bg_pos", "pos_diff"])
+    return df
+    
+    
 # Fuzzy Join Funktion
-def fuzzy_join(samples, background, tolerance=0, aa_mode='exact'):
+def fuzzy_join(samples, background, tolerance=0, aa_mode='exact', inferred_hit_limit=None):
     
     samples = samples.copy()
     background = background.copy()
@@ -396,7 +423,16 @@ def fuzzy_join(samples, background, tolerance=0, aa_mode='exact'):
     # rename gene column to SUB_GENE
     filtered.rename(columns={'GENE': 'SUB_GENE'}, inplace=True)
     
-    return filtered[['SUB_ACC_ID', 'SUB_MOD_RSD_sample', 'SUB_MOD_RSD_bg', 'KINASE','KIN_ACC_ID','IMPUTED', "SUB_GENE"]]
+    filtered = filtered[['SUB_ACC_ID', 'SUB_MOD_RSD_sample', 'SUB_MOD_RSD_bg', 'KINASE','KIN_ACC_ID','IMPUTED', "SUB_GENE"]]
+    
+    # TODO FIXME: Was tun mit doppel hits wobei vers. background sites auf die selbe sample site gemappt werden?
+    
+    # APPLYING MAX INFERRED HIT LIMIT
+    if inferred_hit_limit is not None:
+        print(f"Applying inferred hit limit: {inferred_hit_limit}")
+        filtered = limit_inferred_hits(filtered, inferred_hit_limit)
+    
+    return filtered
 
 
 def calculate_fuzzy_p_vals(kinases, merged, _raw_data, mode="limit"):
@@ -430,6 +466,11 @@ def calculate_fuzzy_p_vals(kinases, merged, _raw_data, mode="limit"):
         table = [[x, n - x],
                 [N - x, M - N - n + x]]
 
+        if kinase == "AKT1":
+            print("######" + str(kinase) + "############")
+            print(table)
+            print(f"x: {x}, n: {n}, N: {N}, M: {M}")
+            print("############################")
         # print(f"Kinase: {kinase}")
         # print(table)
 
@@ -465,14 +506,15 @@ def calculate_fuzzy_p_vals(kinases, merged, _raw_data, mode="limit"):
 
 
 
-def perform_fuzzy_enrichment(raw_data, sites, correction_method, tolerance=0, aa_mode='exact'):
+def perform_fuzzy_enrichment(raw_data, sites, correction_method, tolerance=0, aa_mode='exact', inferred_hit_limit=None):
     #### Platzhalter TODO FIXME 
     
     fuzzy_merged = fuzzy_join(
         samples=sites,
         background=pd.DataFrame(raw_data),
         tolerance=tolerance,
-        aa_mode=aa_mode
+        aa_mode=aa_mode,
+        inferred_hit_limit=inferred_hit_limit
     )
     print(fuzzy_merged)
     kinases = fuzzy_merged.groupby(['KINASE', 'KIN_ACC_ID']).size().reset_index(name='count')
@@ -492,16 +534,17 @@ def perform_fuzzy_enrichment(raw_data, sites, correction_method, tolerance=0, aa
     results = results.reset_index(drop=True)
     return results, fuzzy_merged
 
-def start_fuzzy_enrichment(content, raw_data, correction_method, rounding=False, aa_mode='exact', tolerance=0):
+def start_fuzzy_enrichment(content, raw_data, correction_method, rounding=False, aa_mode='exact', tolerance=0, inferred_hit_limit=None):
+    
     sites = read_sites(content)
 
     if not sites.empty:
-        fuzzy_result, fuzzy_hits = perform_fuzzy_enrichment(raw_data, sites, correction_method, aa_mode=aa_mode, tolerance=tolerance)
+        fuzzy_result, fuzzy_hits = perform_fuzzy_enrichment(raw_data, sites, correction_method, aa_mode=aa_mode, tolerance=tolerance, inferred_hit_limit=inferred_hit_limit)
         
         if fuzzy_result.isnull().values.any():
             print("Warning: site_result or sub_results contains null or NA values.")
         
-        fuzzy_hit_columns = ['SUB_GENE', 'SUB_MOD_RSD_sample', 'KINASE', 'KIN_ACC_ID','SUB_MOD_RSD_bg', 'IMPUTED']
+        fuzzy_hit_columns = ['SUB_GENE',"SUB_ACC_ID" ,'SUB_MOD_RSD_sample', 'KINASE', 'KIN_ACC_ID','SUB_MOD_RSD_bg', 'IMPUTED']
 
         print("Fuzzy hit colums ", fuzzy_hits.columns)
         
