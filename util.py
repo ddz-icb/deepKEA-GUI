@@ -1,4 +1,8 @@
 import pandas as pd
+import os
+import logging
+import sys
+from datetime import datetime
 from statsmodels.stats.multitest import multipletests
 from scipy.stats import fisher_exact
 import scipy.stats as stats
@@ -6,6 +10,88 @@ import constants
 from tqdm import tqdm
 
 tqdm.pandas()
+
+# ANSI color codes for terminal output
+class Colors:
+    RESET = '\033[0m'
+    BOLD = '\033[1m'
+    
+    # Regular colors
+    BLACK = '\033[30m'
+    RED = '\033[31m'
+    GREEN = '\033[32m'
+    YELLOW = '\033[33m'
+    BLUE = '\033[34m'
+    MAGENTA = '\033[35m'
+    CYAN = '\033[36m'
+    WHITE = '\033[37m'
+    
+    # Bright colors
+    BRIGHT_BLACK = '\033[90m'
+    BRIGHT_RED = '\033[91m'
+    BRIGHT_GREEN = '\033[92m'
+    BRIGHT_YELLOW = '\033[93m'
+    BRIGHT_BLUE = '\033[94m'
+    BRIGHT_MAGENTA = '\033[95m'
+    BRIGHT_CYAN = '\033[96m'
+    BRIGHT_WHITE = '\033[97m'
+
+class ColoredFormatter(logging.Formatter):
+    """Custom formatter with colors for different log levels"""
+    
+    FORMATS = {
+        logging.DEBUG: Colors.BRIGHT_BLACK + '%(asctime)s [DEBUG] %(name)s: %(message)s' + Colors.RESET,
+        logging.INFO: Colors.BRIGHT_CYAN + '%(asctime)s' + Colors.RESET + ' [' + Colors.GREEN + 'INFO' + Colors.RESET + '] ' + Colors.CYAN + '%(name)s' + Colors.RESET + ': %(message)s',
+        logging.WARNING: Colors.BRIGHT_CYAN + '%(asctime)s' + Colors.RESET + ' [' + Colors.YELLOW + 'WARN' + Colors.RESET + '] ' + Colors.CYAN + '%(name)s' + Colors.RESET + ': ' + Colors.YELLOW + '%(message)s' + Colors.RESET,
+        logging.ERROR: Colors.BRIGHT_CYAN + '%(asctime)s' + Colors.RESET + ' [' + Colors.RED + 'ERROR' + Colors.RESET + '] ' + Colors.CYAN + '%(name)s' + Colors.RESET + ': ' + Colors.RED + '%(message)s' + Colors.RESET,
+        logging.CRITICAL: Colors.BRIGHT_CYAN + '%(asctime)s' + Colors.RESET + ' [' + Colors.BRIGHT_RED + Colors.BOLD + 'CRITICAL' + Colors.RESET + '] ' + Colors.CYAN + '%(name)s' + Colors.RESET + ': ' + Colors.BRIGHT_RED + Colors.BOLD + '%(message)s' + Colors.RESET,
+    }
+
+    def format(self, record):
+        log_fmt = self.FORMATS.get(record.levelno)
+        formatter = logging.Formatter(log_fmt, datefmt='%H:%M:%S')
+        return formatter.format(record)
+
+# Configure logging system with colors
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setFormatter(ColoredFormatter())
+
+logging.basicConfig(
+    level=logging.INFO,
+    handlers=[console_handler]
+)
+
+logger = logging.getLogger('fuzzyKEA')
+logger.setLevel(logging.INFO)
+
+def log_info(message, user_context=None):
+    """Structured logging with optional user context"""
+    if user_context:
+        logger.info(f"[User: {user_context}] {message}")
+    else:
+        logger.info(message)
+
+def log_warning(message, user_context=None):
+    """Warning logging"""
+    if user_context:
+        logger.warning(f"[User: {user_context}] {message}")
+    else:
+        logger.warning(message)
+
+def log_error(message, exception=None, user_context=None):
+    """Structured error logging"""
+    prefix = f"[User: {user_context}] " if user_context else ""
+    if exception:
+        logger.error(f"{prefix}{message}: {str(exception)}", exc_info=True)
+    else:
+        logger.error(f"{prefix}{message}")
+
+def log_debug(message, user_context=None):
+    """Debug logging"""
+    if user_context:
+        logger.debug(f"[User: {user_context}] {message}")
+    else:
+        logger.debug(message)
 
 def set_column_to_markdown(columns_dict, column):
     for col in columns_dict:
@@ -21,7 +107,7 @@ def add_uniprot_link_col(df):
     return df
 
 
-def performKSEA(raw_data, sites, correction_method):
+def performKSEA(raw_data, sites, correction_method, statistical_test='fisher'):
     # Merge raw_data and sites on both SUB_ACC_ID and SUB_MOD_RSD to match sites accurately
     merged = pd.merge(raw_data, sites, on=["SUB_ACC_ID", "SUB_MOD_RSD"])
 
@@ -36,19 +122,15 @@ def performKSEA(raw_data, sites, correction_method):
     kinase_counts = pd.DataFrame(kinase_counts, columns=["KINASE", "COUNT", "UPID"])
     kinase_counts = kinase_counts.set_index("KINASE")
 
-    print("Initiating deep-level KSEA...")
-    # print lenghts of parameters
-    print("Length of kinases: ", len(kinases))
-    print("Length of merged: ", len(merged))
-    print("Length of raw_data: ", len(raw_data))
+    log_info("Initiating site-level KSEA analysis")
+    log_info(f"Statistical test: {statistical_test}")
+    log_info(f"Dataset sizes - Kinases: {len(kinases)}, Merged: {len(merged)}, Raw data: {len(raw_data)}")
 
-    # Calculate p-values using Fisher's exact test
-    results = calculate_p_vals(kinases, merged, raw_data, "Deep")
+    # Calculate p-values using specified statistical test
+    results = calculate_p_vals(kinases, merged, raw_data, statistical_test, "Site")
 
-    # Convert results to DataFrame and adjust p-values for multiple testing using FDR (Benjamini-Hochberg)
-    results = pd.DataFrame(results, columns=["KINASE", "P_VALUE", "CHI2_P_VALUE", "UPID", "FOUND", "SUB#"])
-    # results = results.sort_values(by="P_VALUE")
-    # results['ADJ_P_VALUE'] = results['P_VALUE']
+    # Convert results to DataFrame and adjust p-values for multiple testing
+    results = pd.DataFrame(results, columns=["KINASE", "P_VALUE", "UPID", "FOUND", "SUB#"])
     results['ADJ_P_VALUE'] = multipletests(results['P_VALUE'], method=correction_method)[1]
     results = results.reset_index(drop=True)
 
@@ -68,10 +150,23 @@ def count_kinases(kinases, _raw_data):
     return kinase_counts
 
 
-def calculate_p_vals(kinases, merged, _raw_data, mode=""):
+def calculate_p_vals(kinases, merged, _raw_data, statistical_test='fisher', mode=""):
+    """
+    Calculate p-values using Fisher's Exact Test or Chi-Square Test.
+    
+    Args:
+        kinases: DataFrame with kinase information
+        merged: Merged data
+        _raw_data: Raw dataset
+        statistical_test: 'fisher' or 'chi2'
+        mode: Description of the mode for logging
+    
+    Returns:
+        List of results: [KINASE, P_VALUE, UPID, FOUND, SUB#]
+    """
     results = []
 
-    print("Calculating p-values...")
+    print(f"Calculating p-values using {statistical_test} test...")
     print("Mode: ", mode)
 
     for _, row in kinases.iterrows():
@@ -94,41 +189,32 @@ def calculate_p_vals(kinases, merged, _raw_data, mode=""):
         table = [[x, n - x],
                 [N - x, M - N - n + x]]
 
-        # print(f"Kinase: {kinase}")
-        # print(table)
-
-        # Flatten the table to check if any value is zero (Fisher's exact test requires positive values)
+        # Flatten the table to check if any value is valid
         flat_list = [item for sublist in table for item in sublist]
 
         if all(value >= 0 for value in flat_list):
-            _, fisch_exc_p_value = fisher_exact(table, alternative='greater')
-            chi2, chi2_p_value, _, _ = stats.chi2_contingency(table)
-
-            if (fisch_exc_p_value == 1):
-                print("######" + str(kinase) + "############")
-                print(table)
-                print(f"P-value: {fisch_exc_p_value}")
-                print("############################")
-                
-            #print(type(fisch_exc_p_value))
-            if kinase == "ATM":
-                print(type(chi2_p_value))
-                print("P= ", chi2_p_value)
+            if statistical_test == 'fisher':
+                _, p_value = fisher_exact(table, alternative='greater')
+            elif statistical_test == 'chi2':
+                _, p_value, _, _ = stats.chi2_contingency(table)
+            else:
+                print(f"Warning: Unknown statistical test '{statistical_test}', defaulting to Fisher's exact")
+                _, p_value = fisher_exact(table, alternative='greater')
             
-            if chi2_p_value.astype(float) < 0 or fisch_exc_p_value.astype(float) > 1:
-                print("error")
-                print("######" + str(kinase) + "############")
+            # Validation
+            if p_value < 0 or p_value > 1:
+                print(f"Warning: Invalid p-value {p_value} for kinase {kinase}")
                 print(table)
-
-            results.append([kinase, fisch_exc_p_value, chi2_p_value, upid, x, n])
+            
+            results.append([kinase, p_value, upid, x, n])
         else:
-            # Default values when Fisher's test is not applicable
-            results.append([kinase, -1, 2, 2, upid, x, n])
+            # Default values when test is not applicable
+            results.append([kinase, 1.0, upid, x, n])
 
     return results
 
 
-def performKSEA_high_level(raw_data, sites, correction_method):
+def performKSEA_high_level(raw_data, sites, correction_method, statistical_test='fisher'):
     # Merge raw_data and sites on both SUB_ACC_ID and SUB_MOD_RSD to match sites accurately
 
     sites = sites.drop(columns=['SUB_MOD_RSD'])
@@ -150,19 +236,17 @@ def performKSEA_high_level(raw_data, sites, correction_method):
     kinase_counts = pd.DataFrame(kinase_counts, columns=["KINASE", "COUNT", "UPID"])
     kinase_counts = kinase_counts.set_index("KINASE")
 
-    print("Initiating high-level KSEA...")
-    # print lenghts of parameters
-    print("Length of kinases: ", len(kinases))
-    print("Length of merged: ", len(merged))
-    print("Length of raw_data_cpy: ", len(raw_data_cpy))
+    print("Initiating substrate-level KSEA...")
+    log_info("Initiating substrate-level KSEA analysis")
+    log_info(f"Statistical test: {statistical_test}")
+    log_info(f"Dataset sizes - Kinases: {len(kinases)}, Merged: {len(merged)}, Raw data: {len(raw_data_cpy)}")
 
-    # Calculate p-values using Fisher's exact test
-    results = calculate_p_vals(kinases, merged, raw_data_cpy, "High")
+    # Calculate p-values using specified statistical test
+    results = calculate_p_vals(kinases, merged, raw_data_cpy, statistical_test, "Substrate")
 
-    # Convert results to DataFrame and adjust p-values for multiple testing using FDR (Benjamini-Hochberg)
-    results = pd.DataFrame(results, columns=["KINASE", "P_VALUE", "CHI2_P_VALUE", "UPID", "FOUND", "SUB#"])
+    # Convert results to DataFrame and adjust p-values for multiple testing
+    results = pd.DataFrame(results, columns=["KINASE", "P_VALUE", "UPID", "FOUND", "SUB#"])
     results = results.sort_values(by="P_VALUE")
-    # results['ADJ_P_VALUE'] = results['P_VALUE']
     results['ADJ_P_VALUE'] = multipletests(results['P_VALUE'], method=correction_method)[1]
     results = results.reset_index(drop=True)
 
@@ -222,8 +306,9 @@ def read_sites(content):
     return df.drop_duplicates()
 
 
-def start_eval(content, raw_data, correction_method, rounding=False, aa_mode='exact', tolerance=0, selected_amino_acids = None, inferred_hit_limit = None):
-    print(f"Util: Starting evaluation with amino acids: {selected_amino_acids}")
+def start_eval(content, raw_data, correction_method, statistical_test='fisher', rounding=False, aa_mode='exact', tolerance=0, selected_amino_acids = None, inferred_hit_limit = None):
+    log_info(f"Starting evaluation with amino acids: {selected_amino_acids}")
+    log_info(f"Statistical test method: {statistical_test}")
     
     if raw_data is not None and not raw_data.empty and 'SUB_MOD_RSD' in raw_data.columns and selected_amino_acids:
         # Extrahiere den ersten Buchstaben (die Aminosäure) aus SUB_MOD_RSD
@@ -252,12 +337,13 @@ def start_eval(content, raw_data, correction_method, rounding=False, aa_mode='ex
             content=content,
             raw_data=raw_data,
             correction_method=correction_method,
+            statistical_test=statistical_test,
             rounding=rounding,
             aa_mode=aa_mode,
             tolerance=tolerance,
             inferred_hit_limit=inferred_hit_limit
         )
-        sub_results, sub_hits = performKSEA_high_level(raw_data, sites, correction_method)
+        sub_results, sub_hits = performKSEA_high_level(raw_data, sites, correction_method, statistical_test)
 
         
         #print(sub_results[sub_results["KINASE"] == "ATM"])
@@ -281,24 +367,12 @@ def start_eval(content, raw_data, correction_method, rounding=False, aa_mode='ex
 
 
 def round_p_values(site_result, sub_results):
-    site_result["P_VALUE"] = (
-        site_result["P_VALUE"].astype(float).apply(format_p_value)
-    )
-    site_result["ADJ_P_VALUE"] = (
-        site_result["ADJ_P_VALUE"].astype(float).apply(format_p_value)
-    )
-    site_result["CHI2_P_VALUE"] = (
-        site_result["CHI2_P_VALUE"].astype(float).apply(format_p_value)
-    )
-    sub_results["P_VALUE"] = (
-        sub_results["P_VALUE"].astype(float).apply(format_p_value)
-    )
-    sub_results["ADJ_P_VALUE"] = (
-        site_result["ADJ_P_VALUE"].astype(float).apply(format_p_value)
-    )
-    sub_results["CHI2_P_VALUE"] = (
-        site_result["CHI2_P_VALUE"].astype(float).apply(format_p_value)
-    )
+    """Round p-values for display purposes."""
+    site_result["P_VALUE"] = site_result["P_VALUE"].astype(float).apply(format_p_value)
+    site_result["ADJ_P_VALUE"] = site_result["ADJ_P_VALUE"].astype(float).apply(format_p_value)
+    
+    sub_results["P_VALUE"] = sub_results["P_VALUE"].astype(float).apply(format_p_value)
+    sub_results["ADJ_P_VALUE"] = sub_results["ADJ_P_VALUE"].astype(float).apply(format_p_value)
 
 
 def format_p_value(value):
@@ -317,6 +391,13 @@ def get_pathways_by_upid(lookup, df_p):
 
 def load_psp_dataset():
     try:
+        if not os.path.exists(constants.KIN_SUB_DATASET_PATH):
+            error_msg = f"Dataset file not found at: {constants.KIN_SUB_DATASET_PATH}"
+            print(f"CRITICAL ERROR: {error_msg}")
+            print(f"Please ensure the file exists in the assets/ folder.")
+            print(f"Expected path: {os.path.abspath(constants.KIN_SUB_DATASET_PATH)}")
+            return []
+        
         raw_data = pd.read_csv(constants.KIN_SUB_DATASET_PATH, sep="\t")
         raw_data = raw_data[raw_data["SUB_ORGANISM"] == constants.SUB_ORGANISM]
         raw_data = raw_data[raw_data["KIN_ORGANISM"] == constants.KIN_ORGANISM]
@@ -337,20 +418,35 @@ def load_psp_dataset():
         return raw_data.to_dict("records")
     except Exception as e:
         print("CRITICAL ERROR LOADING PSP DATASET: ", e)
+        return []
 
 # Hilfsfunktion zum Parsen der Site-Spalte
 def parse_site(site_str):
-    site_str = site_str.strip()
-    # split string into letter and number
-    if not isinstance(site_str, str) or len(site_str) < 2:
-        raise ValueError(f"Ungültiges Format für site_str: {site_str}")
-    
-    # print(f"Parsing site_str: {site_str}")
-    # print(f"AA: {site_str[0]}")
-    # print(f"Position: {site_str[1:]}")
-    # print("A")
-    
-    return site_str[0], int(site_str[1:])
+    """Parse a site string like 'S123' into amino acid and position."""
+    try:
+        if pd.isna(site_str):
+            return None, None
+        
+        site_str = str(site_str).strip()
+        
+        if len(site_str) < 2:
+            print(f"Warning: Invalid site format (too short): '{site_str}'")
+            return None, None
+        
+        aa = site_str[0]
+        pos_str = site_str[1:]
+        
+        # Check if position is a valid number
+        if not pos_str.lstrip('-').isdigit():
+            print(f"Warning: Invalid position in site: '{site_str}'")
+            return None, None
+        
+        pos = int(pos_str)
+        
+        return aa, pos
+    except Exception as e:
+        print(f"Warning: Error parsing site '{site_str}': {e}")
+        return None, None
 
 # Aminosäurevergleich je nach Modus
 def aa_match(aa1, aa2, aa_mode):
@@ -368,77 +464,267 @@ def aa_match(aa1, aa2, aa_mode):
         raise ValueError(f"Unbekannter aa_mode: {aa_mode}")
 
 def limit_inferred_hits(df, inferred_hit_limit):
-    print("#################")
-    # set colum sample pos to sub_mod_rsd_sample without the first character
+    """
+    Limit the number of inferred (fuzzy-matched) hits per kinase.
+    Keeps all exact matches and only the closest inferred hits up to the limit.
+    
+    Args:
+        df: DataFrame with matched sites
+        inferred_hit_limit: Maximum number of inferred hits to keep per kinase
+    
+    Returns:
+        DataFrame with limited inferred hits
+    """
+    if df.empty:
+        return df
+    
     if "SUB_MOD_RSD_sample" not in df.columns:
+        print(f"ERROR: SUB_MOD_RSD_sample not in columns. Available columns: {list(df.columns)}")
         raise ValueError("DataFrame must contain 'SUB_MOD_RSD_sample' column to limit inferred hits.")
-    df["sample_pos"] = df["SUB_MOD_RSD_sample"].str[1:].astype(int)
-    df["bg_pos"] = df["SUB_MOD_RSD_bg"].str[1:].astype(int)
-    df["pos_diff"] = abs(df["sample_pos"] - df["bg_pos"])
-    # For each kinase, only keep the first k=inferred_hit_limit rows that are imputed
-    def keep_first_k_imputed(group):
-        imputed = group[group["IMPUTED"] == True].sort_values("pos_diff", ascending=True)
-        not_imputed = group[group["IMPUTED"] == False]
-        # Keep only the first k imputed rows
-        imputed = imputed.head(inferred_hit_limit)
-        # Combine with not imputed rows
-        return pd.concat([not_imputed, imputed], ignore_index=True)
-
-    df = df.groupby("KINASE", group_keys=False).apply(keep_first_k_imputed)
-    df = df.drop(columns=["sample_pos", "bg_pos", "pos_diff"])
-    return df
+    
+    if "SUB_MOD_RSD_bg" not in df.columns:
+        print(f"ERROR: SUB_MOD_RSD_bg not in columns. Available columns: {list(df.columns)}")
+        raise ValueError("DataFrame must contain 'SUB_MOD_RSD_bg' column to limit inferred hits.")
+    
+    # Work on a copy and reset index immediately to avoid alignment issues
+    df = df.copy().reset_index(drop=True)
+    
+    log_debug(f"limit_inferred_hits: Processing {df.shape[0]} hits")
+    
+    # Calculate position difference - handle parsing errors
+    def safe_extract_pos(site_str):
+        """Safely extract position from site string."""
+        try:
+            if pd.isna(site_str):
+                return None
+            site_str = str(site_str).strip()
+            if len(site_str) < 2:
+                return None
+            pos_part = site_str[1:]
+            if not pos_part.lstrip('-').isdigit():
+                return None
+            return int(pos_part)
+        except (ValueError, IndexError) as e:
+            print(f"Warning: Could not extract position from '{site_str}': {e}")
+            return None
+    
+    df["sample_pos"] = df["SUB_MOD_RSD_sample"].apply(safe_extract_pos)
+    df["bg_pos"] = df["SUB_MOD_RSD_bg"].apply(safe_extract_pos)
+    
+    # Remove rows where position extraction failed
+    before_drop = len(df)
+    try:
+        df = df.dropna(subset=["sample_pos", "bg_pos"]).copy()
+        if len(df) < before_drop:
+            log_warning(f"Removed {before_drop - len(df)} rows with invalid positions")
+    except Exception as e:
+        log_error("Error during position filtering", e)
+        raise
+    
+    if df.empty:
+        log_warning("No valid positions found in limit_inferred_hits, returning empty DataFrame")
+        return pd.DataFrame(columns=df.columns)
+    
+    try:
+        df["pos_diff"] = abs(df["sample_pos"] - df["bg_pos"])
+    except Exception as e:
+        log_error("Error calculating position difference", e)
+        raise
+    
+    # For each kinase, keep all exact matches + closest inferred hits up to limit
+    result_rows = []
+    try:
+        for kinase, group in df.groupby("KINASE"):
+            # Reset index for the group to avoid negative index issues
+            group = group.reset_index(drop=True).copy()
+            log_debug(f"Processing kinase: {kinase}, {group.shape[0]} hits")
+            
+            # Convert IMPUTED to boolean explicitly to avoid indexing issues
+            imputed_mask = group["IMPUTED"].astype(bool)
+            
+            # Separate exact matches from inferred using .loc to be explicit
+            exact_mask = ~imputed_mask
+            
+            exact = group.loc[exact_mask].copy()
+            inferred = group.loc[imputed_mask].copy()
+            log_debug(f"Kinase {kinase} - exact: {len(exact)}, inferred: {len(inferred)}")
+            
+            # Sort inferred by position difference and keep only the closest ones
+            if not inferred.empty and inferred_hit_limit > 0:
+                inferred = inferred.sort_values("pos_diff", ascending=True).head(inferred_hit_limit)
+            elif inferred_hit_limit == 0:
+                inferred = pd.DataFrame(columns=group.columns)
+            
+            # Combine exact and limited inferred hits
+            kinase_hits = pd.concat([exact, inferred], ignore_index=True)
+            result_rows.append(kinase_hits)
+        
+        log_debug(f"Finished processing {len(result_rows)} kinases")
+    except Exception as e:
+        log_error("Error in kinase grouping loop", e)
+        raise
+    
+    log_info(f"Before limiting: {len(df)} total hits")
+    try:
+        df_limited = pd.concat(result_rows, ignore_index=True) if result_rows else pd.DataFrame(columns=df.columns)
+        log_info(f"After limiting: {len(df_limited)} total hits (max {inferred_hit_limit} inferred per kinase)")
+    except Exception as e:
+        log_error("Error concatenating results", e)
+        raise
+    
+    # Clean up temporary columns
+    try:
+        df_limited = df_limited.drop(columns=["sample_pos", "bg_pos", "pos_diff"])
+    except Exception as e:
+        log_error(f"Error dropping temporary columns. Available: {list(df_limited.columns)}", e)
+        raise
+    
+    return df_limited
     
     
 # Fuzzy Join Funktion
 def fuzzy_join(samples, background, tolerance=0, aa_mode='exact', inferred_hit_limit=None):
+    """
+    Fuzzy matching of sample sites to background database sites.
+    Each sample site is matched to AT MOST ONE database site (the closest one by position).
+    
+    Args:
+        samples: DataFrame with sample sites
+        background: DataFrame with database sites
+        tolerance: Maximum position difference allowed
+        aa_mode: Amino acid matching mode ('exact', 'st-similar', 'ignore')
+        inferred_hit_limit: Maximum number of inferred hits per kinase
+    
+    Returns:
+        DataFrame with matched sites, each sample site matched to max 1 DB site
+    """
     
     samples = samples.copy()
     background = background.copy()
 
     # AA + Pos extrahieren
+    log_info("Parsing sample sites...")
     samples[['AA', 'Pos']] = samples['SUB_MOD_RSD'].progress_apply(parse_site).progress_apply(pd.Series)
+    
+    log_info("Parsing background sites...")
     background[['AA', 'Pos']] = background['SUB_MOD_RSD'].progress_apply(parse_site).progress_apply(pd.Series)
-    print("Applying fuzzy matching...")
+    
+    # Remove rows with invalid sites (None values)
+    samples_before = len(samples)
+    samples = samples.dropna(subset=['AA', 'Pos'])
+    if len(samples) < samples_before:
+        print(f"Warning: Removed {samples_before - len(samples)} invalid sample sites")
+    
+    background_before = len(background)
+    background = background.dropna(subset=['AA', 'Pos'])
+    if len(background) < background_before:
+        print(f"Warning: Removed {background_before - len(background)} invalid background sites")
+    
+    if samples.empty:
+        print("Error: No valid sample sites after parsing!")
+        return pd.DataFrame(columns=['SUB_ACC_ID', 'SUB_MOD_RSD_sample', 'SUB_MOD_RSD_bg', 
+                                     'KINASE', 'KIN_ACC_ID', 'IMPUTED', 'SUB_GENE'])
+    
+    if background.empty:
+        print("Error: No valid background sites after parsing!")
+        return pd.DataFrame(columns=['SUB_ACC_ID', 'SUB_MOD_RSD_sample', 'SUB_MOD_RSD_bg', 
+                                     'KINASE', 'KIN_ACC_ID', 'IMPUTED', 'SUB_GENE'])
+    
+    log_info("Applying fuzzy matching with 1:1 constraint (closest match)...")
+    
     # Merge über UniprotID
     merged = samples.merge(background, on='SUB_ACC_ID', suffixes=('_sample', '_bg'))
 
-    # Fuzzy-Matching
-    def match_and_flag(row):
+    # Fuzzy-Matching mit Position-Distanz
+    def match_and_calculate_distance(row):
         if aa_match(row['AA_sample'], row['AA_bg'], aa_mode):
             distance = abs(row['Pos_sample'] - row['Pos_bg'])
             if distance <= tolerance:
-                return True, distance > 0
-        return False, None
+                is_imputed = distance > 0
+                return True, is_imputed, distance
+        return False, None, None
 
     # Apply Matching
-    
     tqdm.pandas(desc="Matching rows")
-    results = merged.progress_apply(lambda row: match_and_flag(row), axis=1)
-    merged[['match', 'IMPUTED']] = pd.DataFrame(results.tolist(), index=merged.index)
+    results = merged.progress_apply(lambda row: match_and_calculate_distance(row), axis=1)
+    merged[['match', 'IMPUTED', 'pos_distance']] = pd.DataFrame(results.tolist(), index=merged.index)
 
     # Nur passende behalten
     filtered = merged[merged['match']].copy()
     
-    print("Filtered columns: ", filtered.columns)
-    # rename gene column to SUB_GENE
-    filtered.rename(columns={'GENE': 'SUB_GENE'}, inplace=True)
+    if filtered.empty:
+        print("Warning: No matches found!")
+        return pd.DataFrame(columns=['SUB_ACC_ID', 'SUB_MOD_RSD_sample', 'SUB_MOD_RSD_bg', 
+                                     'KINASE', 'KIN_ACC_ID', 'IMPUTED', 'SUB_GENE'])
     
-    filtered = filtered[['SUB_ACC_ID', 'SUB_MOD_RSD_sample', 'SUB_MOD_RSD_bg', 'KINASE','KIN_ACC_ID','IMPUTED', "SUB_GENE"]]
+    log_info(f"Total matches before deduplication: {len(filtered)}")
     
-    # TODO FIXME: Was tun mit doppel hits wobei vers. background sites auf die selbe sample site gemappt werden?
+    # CRITICAL: Each sample site should map to ONLY ONE database site
+    # Group by sample identifier (SUB_ACC_ID + SUB_MOD_RSD_sample) and keep only the closest match
+    filtered = filtered.copy()  # Ensure we're working with a copy
+    filtered['sample_site_id'] = filtered['SUB_ACC_ID'] + '_' + filtered['SUB_MOD_RSD_sample']
     
-    # APPLYING MAX INFERRED HIT LIMIT
+    # Sort by distance and keep only the first (closest) match for each sample site
+    filtered = filtered.sort_values('pos_distance')
+    filtered_unique = filtered.drop_duplicates(subset=['sample_site_id'], keep='first').copy()
+    
+    log_info(f"Matches after 1:1 deduplication: {len(filtered_unique)} (closest match per input site)")
+    log_info(f"Removed {len(filtered) - len(filtered_unique)} duplicate mappings")
+    
+    # Determine which GENE column to use (from sample or background)
+    if 'GENE_sample' in filtered_unique.columns:
+        gene_col = 'GENE_sample'
+    elif 'GENE_bg' in filtered_unique.columns:
+        gene_col = 'GENE_bg'
+    elif 'GENE' in filtered_unique.columns:
+        gene_col = 'GENE'
+    elif 'SUB_GENE_bg' in filtered_unique.columns:
+        gene_col = 'SUB_GENE_bg'
+    elif 'SUB_GENE_sample' in filtered_unique.columns:
+        gene_col = 'SUB_GENE_sample'
+    else:
+        print("Warning: No GENE column found in filtered data!")
+        print(f"Available columns: {list(filtered_unique.columns)}")
+        gene_col = None
+    
+    # Create SUB_GENE column
+    if gene_col and gene_col != 'SUB_GENE':
+        filtered_unique = filtered_unique.copy()
+        filtered_unique['SUB_GENE'] = filtered_unique[gene_col]
+    elif not gene_col:
+        # If no gene column exists, create an empty one
+        filtered_unique = filtered_unique.copy()
+        filtered_unique['SUB_GENE'] = ''
+    
+    # Select final columns
+    result = filtered_unique[['SUB_ACC_ID', 'SUB_MOD_RSD_sample', 'SUB_MOD_RSD_bg', 
+                              'KINASE', 'KIN_ACC_ID', 'IMPUTED', 'SUB_GENE']].copy()
+    
+    # APPLYING MAX INFERRED HIT LIMIT (per kinase)
     if inferred_hit_limit is not None:
-        print(f"Applying inferred hit limit: {inferred_hit_limit}")
-        filtered = limit_inferred_hits(filtered, inferred_hit_limit)
+        print(f"Applying inferred hit limit: {inferred_hit_limit} per kinase")
+        result = limit_inferred_hits(result, inferred_hit_limit)
     
-    return filtered
+    return result
 
 
-def calculate_fuzzy_p_vals(kinases, merged, _raw_data, mode="limit"):
+def calculate_fuzzy_p_vals(kinases, merged, _raw_data, statistical_test='fisher', mode="limit"):
+    """
+    Calculate p-values for fuzzy matching results.
+    
+    Args:
+        kinases: DataFrame with kinase information
+        merged: Merged fuzzy data
+        _raw_data: Raw dataset
+        statistical_test: 'fisher' or 'chi2'
+        mode: 'limit' to cap x at n
+    
+    Returns:
+        List of results: [KINASE, P_VALUE, UPID, FOUND, SUB#]
+    """
     results = []
 
-    print("Calculating p-values...")
+    print(f"Calculating fuzzy p-values using {statistical_test} test...")
     print("Mode: ", mode)
 
     for _, row in kinases.iterrows():
@@ -460,54 +746,40 @@ def calculate_fuzzy_p_vals(kinases, merged, _raw_data, mode="limit"):
         
         if mode == "limit":
             if x > n:
+                original_x = x
                 x = n
-                print(f"Warning: x ({x}) is greater than n ({n}) for kinase {kinase}. Limiting x to n.")
+                print(f"Warning: Capping x from {original_x} to n={n} for kinase {kinase}")
 
         table = [[x, n - x],
                 [N - x, M - N - n + x]]
 
-        if kinase == "AKT1":
-            print("######" + str(kinase) + "############")
-            print(table)
-            print(f"x: {x}, n: {n}, N: {N}, M: {M}")
-            print("############################")
-        # print(f"Kinase: {kinase}")
-        # print(table)
-
-        # Flatten the table to check if any value is zero (Fisher's exact test requires positive values)
+        # Flatten the table to check if any value is valid
         flat_list = [item for sublist in table for item in sublist]
 
         if all(value >= 0 for value in flat_list):
-            _, fisch_exc_p_value = fisher_exact(table, alternative='greater')
-            chi2, chi2_p_value, _, _ = stats.chi2_contingency(table)
-
-            if (fisch_exc_p_value == 1):
-                print("######" + str(kinase) + "############")
-                print(table)
-                print(f"P-value: {fisch_exc_p_value}")
-                print("############################")
-                
-            #print(type(fisch_exc_p_value))
-            if kinase == "ATM":
-                print(type(chi2_p_value))
-                print("P= ", chi2_p_value)
+            if statistical_test == 'fisher':
+                _, p_value = fisher_exact(table, alternative='greater')
+            elif statistical_test == 'chi2':
+                _, p_value, _, _ = stats.chi2_contingency(table)
+            else:
+                print(f"Warning: Unknown statistical test '{statistical_test}', defaulting to Fisher's exact")
+                _, p_value = fisher_exact(table, alternative='greater')
             
-            if chi2_p_value.astype(float) < 0 or fisch_exc_p_value.astype(float) > 1:
-                print("error")
-                print("######" + str(kinase) + "############")
+            # Validation
+            if p_value < 0 or p_value > 1:
+                print(f"Warning: Invalid p-value {p_value} for kinase {kinase}")
                 print(table)
 
-            results.append([kinase, fisch_exc_p_value, chi2_p_value, upid, x, n])
+            results.append([kinase, p_value, upid, x, n])
         else:
-            # Default values when Fisher's test is not applicable
-            results.append([kinase, -1, 2, 2, upid, x, n])
+            # Default values when test is not applicable
+            results.append([kinase, 1.0, upid, x, n])
 
     return results
 
 
 
-def perform_fuzzy_enrichment(raw_data, sites, correction_method, tolerance=0, aa_mode='exact', inferred_hit_limit=None):
-    #### Platzhalter TODO FIXME 
+def perform_fuzzy_enrichment(raw_data, sites, correction_method, statistical_test='fisher', tolerance=0, aa_mode='exact', inferred_hit_limit=None):
     
     fuzzy_merged = fuzzy_join(
         samples=sites,
@@ -525,21 +797,19 @@ def perform_fuzzy_enrichment(raw_data, sites, correction_method, tolerance=0, aa
     kinase_counts = pd.DataFrame(kinase_counts, columns=["KINASE", "COUNT", "UPID"])
     kinase_counts = kinase_counts.set_index("KINASE")
     
-    results = calculate_fuzzy_p_vals(kinases, fuzzy_merged, raw_data)
-    # Convert results to DataFrame and adjust p-values for multiple testing using FDR (Benjamini-Hochberg)
-    results = pd.DataFrame(results, columns=["KINASE", "P_VALUE", "CHI2_P_VALUE", "UPID", "FOUND", "SUB#"])
-    # results = results.sort_values(by="P_VALUE")
-    # results['ADJ_P_VALUE'] = results['P_VALUE']
+    results = calculate_fuzzy_p_vals(kinases, fuzzy_merged, raw_data, statistical_test)
+    # Convert results to DataFrame and adjust p-values for multiple testing
+    results = pd.DataFrame(results, columns=["KINASE", "P_VALUE", "UPID", "FOUND", "SUB#"])
     results['ADJ_P_VALUE'] = multipletests(results['P_VALUE'], method=correction_method)[1]
     results = results.reset_index(drop=True)
     return results, fuzzy_merged
 
-def start_fuzzy_enrichment(content, raw_data, correction_method, rounding=False, aa_mode='exact', tolerance=0, inferred_hit_limit=None):
+def start_fuzzy_enrichment(content, raw_data, correction_method, statistical_test='fisher', rounding=False, aa_mode='exact', tolerance=0, inferred_hit_limit=None):
     
     sites = read_sites(content)
 
     if not sites.empty:
-        fuzzy_result, fuzzy_hits = perform_fuzzy_enrichment(raw_data, sites, correction_method, aa_mode=aa_mode, tolerance=tolerance, inferred_hit_limit=inferred_hit_limit)
+        fuzzy_result, fuzzy_hits = perform_fuzzy_enrichment(raw_data, sites, correction_method, statistical_test, aa_mode=aa_mode, tolerance=tolerance, inferred_hit_limit=inferred_hit_limit)
         
         if fuzzy_result.isnull().values.any():
             print("Warning: site_result or sub_results contains null or NA values.")

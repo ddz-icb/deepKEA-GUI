@@ -92,11 +92,17 @@ def register_callbacks(app):
 
     @app.callback(
         Output("correction-method-store", "data"),
-        Output("correction-method-display", "children"),
         Input("correction-method-dropdown", "value")
     )
-    def update_correction_method_store_and_display(selected_method):
-        return selected_method, f"Selected method: {selected_method}"
+    def update_correction_method_store(selected_method):
+        return selected_method
+    
+    @app.callback(
+        Output("statistical-test-store", "data"),
+        Input("statistical-test-dropdown", "value")
+    )
+    def update_statistical_test_store(selected_test):
+        return selected_test
 
     @app.callback(
         Output("floppy-settings-store", "data"),
@@ -125,12 +131,12 @@ def register_callbacks(app):
             Output("bar-plot-site-enrichment", "figure"),
             Output("bar-plot-sub-enrichment", "figure")
         ],
-        [Input("button-start-analysis", "n_clicks"),
-         Input("session-id", "data")],
+        [Input("button-start-analysis", "n_clicks")],
         
         [
             State("text-input", "value"),
             State("correction-method-store", "data"),
+            State("statistical-test-store", "data"),
             State("raw-data-store", "data"),
             State("floppy-settings-store", "data"),
             State("selected-amino-acids-store", "data"),
@@ -138,37 +144,42 @@ def register_callbacks(app):
         ],
         prevent_initial_call=True
     )
-    def run_analysis(n_clicks,session_id, text_value, correction_method, raw_data_dict, floppy_settings, selected_amino_acids, limit_inferred_hits):
-        # print("DEBUG: Starting analysis callback with inputs:")
-        # print("n_clicks:", n_clicks)
-        # print("text_value:", text_value)
-        # print("correction_method:", correction_method)
-        # print("raw_data_dict:", type(raw_data_dict), f"len={len(raw_data_dict) if raw_data_dict is not None else 'None'}")
-        # print("floppy_settings:", floppy_settings)
-        # print("selected_amino_acids:", selected_amino_acids)
+    def run_analysis(n_clicks, text_value, correction_method, statistical_test, raw_data_dict, floppy_settings, selected_amino_acids, limit_inferred_hits):
+        # Validate button click
+        if not n_clicks or n_clicks == 0:
+            print("Analysis not started: Button not clicked.")
+            return (dash.no_update,) * 10
         
-        # initialize_raw_data_store(session_id)
-        limit_inferred_hits = int(limit_inferred_hits["max_hits"])
-        print("Inferred hit limit= ", limit_inferred_hits)
-        print("+++++++HELP++++++")
-        
-        # check if at least one amino acid is selected
+        # Check if at least one amino acid is selected
         if not selected_amino_acids or len(selected_amino_acids) == 0:
             print("Analysis not started: No amino acids selected.")
             return (dash.no_update,) * 10
         
-        if not all([n_clicks > 0, text_value, raw_data_dict, floppy_settings]):
-            
-            print("PSP:", len(raw_data_dict))
-            print("text:", len(text_value))
-            print("Analysis not started: Missing inputs.")
-            
-            return (dash.no_update,) * 10 # Korrekte Anzahl an no_updates
+        # Validate all required inputs
+        if not text_value or not text_value.strip():
+            print("Analysis not started: No text input provided.")
+            return (dash.no_update,) * 10
+        
+        if not raw_data_dict:
+            print("Analysis not started: Raw data not loaded.")
+            return (dash.no_update,) * 10
+        
+        if not floppy_settings:
+            print("Analysis not started: Floppy settings not available.")
+            return (dash.no_update,) * 10
+        
+        if not limit_inferred_hits:
+            print("Analysis not started: Limit inferred hits setting not available.")
+            return (dash.no_update,) * 10
+        
+        # Extract limit value
+        limit_inferred_hits_value = int(limit_inferred_hits.get("max_hits", 7))
+        print(f"Inferred hit limit: {limit_inferred_hits_value}")
 
+        # Convert raw_data_dict to DataFrame
         raw_data_df = pd.DataFrame.from_dict(raw_data_dict)
         if raw_data_df.empty:
             print("Raw data is empty. Cannot start analysis.")
-            # Hier könntest du eine Meldung für den User ausgeben, z.B. über ein dcc.ConfirmDialogProvider
             return (dash.no_update,) * 10
 
         print(f"INFO: Starting analysis with selected amino acids: {selected_amino_acids}")
@@ -176,18 +187,19 @@ def register_callbacks(app):
         
         floppy_val = floppy_settings.get("floppy_value", 5)
         match_mode = floppy_settings.get("matching_mode", "exact")
-        print(f"Analysis params: Floppy={floppy_val}, MatchMode={match_mode}, Correction={correction_method}")
+        print(f"Analysis params: Floppy={floppy_val}, MatchMode={match_mode}, Correction={correction_method}, Statistical Test={statistical_test}")
 
         try:
             site_level_results, sub_level_results, site_hits, sub_hits = util.start_eval(
                 content=text_value,
                 raw_data=raw_data_df,
                 correction_method=correction_method,
+                statistical_test=statistical_test,
                 rounding=True,
                 aa_mode=match_mode,
                 tolerance=floppy_val,
                 selected_amino_acids=selected_amino_acids,
-                inferred_hit_limit=limit_inferred_hits
+                inferred_hit_limit=limit_inferred_hits_value
             )
         except Exception as e:
             print(f"Error during start_eval: {e}")
@@ -234,7 +246,11 @@ def register_callbacks(app):
         if site_level_results is not None and not site_level_results.empty and "ADJ_P_VALUE" in site_level_results.columns and "KINASE" in site_level_results.columns:
             site_df = site_level_results.copy()
             site_df["LOG_ADJ_P_VALUE"] = site_df["ADJ_P_VALUE"].astype(float).apply(lambda x: -math.log10(x) if pd.notna(x) and x > 0 else 0)
-            site_df = site_df.sort_values(by="LOG_ADJ_P_VALUE", ascending=True) # ascending True for horizontal barplot to have highest on top
+            
+            # Sort by ADJ_P_VALUE (lowest p-value = most significant) and take top 10
+            site_df = site_df.sort_values(by="ADJ_P_VALUE", ascending=True).head(10)
+            # Then sort by LOG_ADJ_P_VALUE for display (ascending=True puts highest at top in horizontal bar)
+            site_df = site_df.sort_values(by="LOG_ADJ_P_VALUE", ascending=True)
             
             site_level_barplot = {
                 "data": [
@@ -249,7 +265,7 @@ def register_callbacks(app):
                     ),
                 ],
                 "layout": go.Layout(
-                    title="Site-level enriched kinases",
+                    title="Site-level enriched kinases (Top 10)",
                     xaxis={"title": "-log10 (adjusted p-value)"},
                     yaxis={"title": "Kinases", "automargin": True},
                     margin=dict(l=150, r=20, t=50, b=50), # Adjust margins
@@ -260,6 +276,10 @@ def register_callbacks(app):
         if sub_level_results is not None and not sub_level_results.empty and "ADJ_P_VALUE" in sub_level_results.columns and "KINASE" in sub_level_results.columns:
             sub_df = sub_level_results.copy()
             sub_df["LOG_ADJ_P_VALUE"] = sub_df["ADJ_P_VALUE"].astype(float).apply(lambda x: -math.log10(x) if pd.notna(x) and x > 0 else 0)
+            
+            # Sort by ADJ_P_VALUE (lowest p-value = most significant) and take top 10
+            sub_df = sub_df.sort_values(by="ADJ_P_VALUE", ascending=True).head(10)
+            # Then sort by LOG_ADJ_P_VALUE for display
             sub_df = sub_df.sort_values(by="LOG_ADJ_P_VALUE", ascending=True)
 
             sub_level_barplot = {
@@ -275,7 +295,7 @@ def register_callbacks(app):
                     ),
                 ],
                 "layout": go.Layout(
-                    title="Substrate-level enriched kinases",
+                    title="Substrate-level enriched kinases (Top 10)",
                     xaxis={"title": "-log10 (adjusted p-value)"},
                     yaxis={"title": "Kinases", "automargin": True},
                     margin=dict(l=150, r=20, t=50, b=50),
@@ -294,22 +314,27 @@ def register_callbacks(app):
         Output("download-filename-input", "value"),
         Output("active-download-type-store", "data")],
         [Input("button-download", "n_clicks"),
-        Input("button-download-high-level", "n_clicks")],
+        Input("button-download-high-level", "n_clicks"),
+        Input("cancel-download-modal-button", "n_clicks")],
         [State("current-title-store", "data")], # State für is_open hier nicht mehr nötig für reines Öffnen
         prevent_initial_call=True
     )
-    def open_download_modal(n_site, n_high, current_title_from_store):
+    def open_download_modal(n_site, n_high, n_cancel, current_title_from_store):
         ctx = dash.callback_context
         if not ctx.triggered_id:
             return dash.no_update, dash.no_update, dash.no_update
 
-        button_id_triggered = ctx.triggered_id.split(".")[0]
+        button_id_triggered = ctx.triggered_id
 
-        if button_id_triggered == "button-download" and n_site > 0:
+        if button_id_triggered == "cancel-download-modal-button" and n_cancel:
+            print("INFO: Cancel button clicked. Closing modal.")
+            return False, dash.no_update, dash.no_update
+        
+        if button_id_triggered == "button-download" and n_site and n_site > 0:
             print(f"INFO: Download-Button '{button_id_triggered}' geklickt. Öffne Dateinamen-Modal für Site-Level.") # <--- Logging
             default_filename = get_default_filename(current_title_from_store)
             return True, default_filename, "site" # Modal öffnen
-        elif button_id_triggered == "button-download-high-level" and n_high > 0:
+        elif button_id_triggered == "button-download-high-level" and n_high and n_high > 0:
             print(f"INFO: Download-Button '{button_id_triggered}' geklickt. Öffne Dateinamen-Modal für Sub-Level.") # <--- Logging
             default_filename = get_default_filename(current_title_from_store)
             return True, default_filename, "sub" # Modal öffnen
@@ -335,7 +360,7 @@ def register_callbacks(app):
                                 sub_results_dict, sub_hits_dict):
 
         # Prüfen, ob der Callback durch den Button-Klick ausgelöst wurde und ob Eingaben vorhanden sind
-        if n_confirm == 0 or not input_filename or not active_download_type:
+        if not n_confirm or n_confirm == 0 or not input_filename or not active_download_type:
             # Wenn nicht durch Klick oder keine Filename/Type, keine Aktion für Downloads,
             # Modal-Status nicht ändern (oder explizit offen lassen, wenn gewünscht)
             return dash.no_update, dash.no_update, dash.no_update # oder True, um Modal offen zu halten
@@ -344,21 +369,16 @@ def register_callbacks(app):
         if not filename_base: # Fallback, falls der Nutzer alles löscht oder nichts eingibt
             filename_base = "enrichment_results" # Oder ein anderer sinnvoller Default
 
-        # Initialisiere Download-Daten mit None (oder dash.no_update)
-        site_download_data = None
-        sub_download_data = None
-
-        # Logik für SITE-LEVEL DOWNLOAD
         # Logik für SITE-LEVEL DOWNLOAD
         if active_download_type == "site":
             if not site_results_dict:
                 print("FEHLER: Site-Level Ergebnisse nicht im Store für den Download.")
-                return None, None, False 
+                return dash.no_update, dash.no_update, False 
 
             site_results_df = pd.DataFrame.from_dict(site_results_dict)
             if site_results_df.empty:
                 print("INFO: Site-Level DataFrame ist leer. Kein Download.")
-                return None, None, False 
+                return dash.no_update, dash.no_update, False 
 
             downloadable_df_site = site_results_df.copy() 
 
@@ -429,12 +449,12 @@ def register_callbacks(app):
         elif active_download_type == "sub":
             if not sub_results_dict:
                 print("FEHLER: Sub-Level Ergebnisse nicht im Store für den Download.")
-                return None, None, False # Modal schließen, kein Download
+                return dash.no_update, None, False # Modal schließen, kein Download
 
             sub_results_df = pd.DataFrame.from_dict(sub_results_dict)
             if sub_results_df.empty:
                 print("INFO: Sub-Level DataFrame ist leer. Kein Download.")
-                return None, None, False # Modal schließen, kein Download
+                return dash.no_update, None, False # Modal schließen, kein Download
 
             # DataFrame für den Download vorbereiten
             downloadable_df_sub = sub_results_df.copy()
@@ -455,15 +475,11 @@ def register_callbacks(app):
             print("Download mode: ", active_download_type)
             print(f"INFO: Bereite Sub-Level Download vor: {final_filename_sub} with len {str(len(downloadable_df_sub))}")
             # Hier wird der Download für "download-tsv-high-level" ausgelöst
-            return dcc.send_data_frame(downloadable_df_sub.to_csv, final_filename_sub, sep="\t", index=False), dash.no_update, False
+            return dash.no_update, dcc.send_data_frame(downloadable_df_sub.to_csv, final_filename_sub, sep="\t", index=False), False
         
         else:
             print(f"WARNUNG: Unbekannter active_download_type: {active_download_type}")
-            return None, None, False # Modal schließen, kein Download
-
-        # Gibt die vorbereiteten Download-Daten (oder None) an die dcc.Download Komponenten
-        # und schließt das Modal.
-        return site_download_data, sub_download_data, False
+            return dash.no_update, dash.no_update, False # Modal schließen, kein Download
     
     
     # --- UI Interaction Callbacks (Modal, Detail Tables) ---
@@ -550,3 +566,175 @@ def register_callbacks(app):
         }
         print(f"Maxium hits settings updated in store: {settings}")
         return settings
+
+    # --- About Modal Callbacks ---
+    @app.callback(
+        Output("about-modal", "is_open"),
+        [Input("open-about-button", "n_clicks"), Input("close-about-button", "n_clicks")],
+        [State("about-modal", "is_open")],
+    )
+    def toggle_about_modal(n_open, n_close, is_open):
+        if n_open or n_close:
+            return not is_open
+        return is_open
+
+    @app.callback(
+        Output("about-tab-content", "children"),
+        Input("about-tabs", "active_tab")
+    )
+    def render_about_tab_content(active_tab):
+        if active_tab == "tab-overview":
+            return html.Div([
+                html.H4("Overview", className="mb-3"),
+                html.P([
+                    html.Strong("fuzzyKEA"), 
+                    " is a web-based application for kinase enrichment analysis in phosphoproteomic data."
+                ]),
+                html.P([
+                    "This tool performs Kinase-Substrate Enrichment Analysis (KSEA) using the ",
+                    html.A("PhosphoSitePlus", href="https://www.phosphosite.org/", target="_blank"),
+                    " database to identify enriched kinases in your phosphoproteomics datasets."
+                ]),
+                html.H5("Key Features", className="mt-4 mb-2"),
+                html.Ul([
+                    html.Li("Upload phosphoproteomics data (Uniprot IDs + phosphosites)"),
+                    html.Li("Fuzzy matching with configurable position tolerance"),
+                    html.Li("Site-level and substrate-level enrichment analysis"),
+                    html.Li("Multiple statistical tests (Fisher's Exact, Chi-Square)"),
+                    html.Li("Multiple testing correction methods (FDR-BH, FDR-BY, Bonferroni)"),
+                    html.Li("Interactive visualizations and downloadable results"),
+                ]),
+                html.H5("Database Information", className="mt-4 mb-2"),
+                html.P([
+                    "PhosphoSitePlus® dataset: ",
+                    html.Code("Kinase_Substrate_Dataset.txt"),
+                    html.Br(),
+                    "Last updated: September 14, 2024"
+                ]),
+                html.Hr(),
+                html.P([
+                    "Developed at the ",
+                    html.Strong("German Diabetes Center (DDZ)"),
+                    " - Institute for Clinical Bioinformatics"
+                ], className="text-muted"),
+            ])
+        
+        elif active_tab == "tab-features":
+            return html.Div([
+                html.H4("Features & Capabilities", className="mb-3"),
+                
+                html.H5("1. Fuzzy Matching Algorithm", className="mt-3"),
+                html.P([
+                    "The fuzzy matching engine allows approximate matching between your input sites and the database with configurable parameters:"
+                ]),
+                html.Ul([
+                    html.Li([html.Strong("Position Tolerance: "), "Match sites within ±N positions"]),
+                    html.Li([html.Strong("Amino Acid Modes: "), html.Ul([
+                        html.Li([html.Strong("Exact: "), "Require exact amino acid match"]),
+                        html.Li([html.Strong("S/T-similar: "), "Treat Serine and Threonine as equivalent"]),
+                        html.Li([html.Strong("Ignore: "), "Match any amino acid at the position"]),
+                    ])]),
+                    html.Li([html.Strong("1:1 Constraint: "), "Each input site maps to at most one database site (the closest match)"]),
+                    html.Li([html.Strong("Inferred Hit Limit: "), "Limit fuzzy matches per kinase to avoid over-representation"]),
+                ]),
+                
+                html.H5("2. Statistical Analysis", className="mt-4"),
+                html.Ul([
+                    html.Li([html.Strong("Fisher's Exact Test: "), "Recommended for small sample sizes"]),
+                    html.Li([html.Strong("Chi-Square Test: "), "Alternative test for larger datasets"]),
+                    html.Li([html.Strong("Multiple Testing Correction: "), "FDR-BH (recommended), FDR-BY, or Bonferroni"]),
+                ]),
+                
+                html.H5("3. Two-Level Analysis", className="mt-4"),
+                html.Ul([
+                    html.Li([html.Strong("Site-level: "), "Enrichment based on individual phosphorylation sites"]),
+                    html.Li([html.Strong("Substrate-level: "), "Enrichment based on unique substrate proteins"]),
+                ]),
+                
+                html.H5("4. Export Options", className="mt-4"),
+                html.P("Download results in CSV or Excel format with detailed hit information."),
+                
+                html.Hr(),
+                html.Div([
+                    dbc.Alert([
+                        html.I(className="bi bi-info-circle me-2"),
+                        html.Strong("Tip: "),
+                        "Use the substrate-level analysis to reduce bias from highly phosphorylated proteins."
+                    ], color="info", className="mt-3")
+                ])
+            ])
+        
+        elif active_tab == "tab-citation":
+            return html.Div([
+                html.H4("Citation & Credits", className="mb-3"),
+                
+                html.H5("How to Cite", className="mt-3"),
+                html.Div([
+                    html.P("If you use fuzzyKEA in your research, please cite:"),
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.P([
+                                "fuzzyKEA: Fuzzy Kinase Enrichment Analysis for Phosphoproteomics Data",
+                                html.Br(),
+                                "German Diabetes Center (DDZ), Institute for Clinical Bioinformatics",
+                                html.Br(),
+                                html.Code("https://github.com/ddz-icb/deepKEA-GUI"),
+                            ], className="font-monospace small mb-0")
+                        ])
+                    ], className="mb-3", color="light"),
+                ]),
+                
+                html.H5("PhosphoSitePlus Database", className="mt-4"),
+                html.P("This tool uses data from PhosphoSitePlus®. Please cite:"),
+                dbc.Card([
+                    dbc.CardBody([
+                        html.P([
+                            "Hornbeck PV, Zhang B, Murray B, Kornhauser JM, Latham V, Skrzypek E ",
+                            html.Br(),
+                            html.Em("PhosphoSitePlus, 2014: mutations, PTMs and recalibrations."),
+                            html.Br(),
+                            "Nucleic Acids Res. 2015 Jan;43(Database issue):D512-20.",
+                            html.Br(),
+                            "PMID: ", html.A("25514926", href="https://pubmed.ncbi.nlm.nih.gov/25514926/", target="_blank")
+                        ], className="small mb-0")
+                    ])
+                ], className="mb-3", color="light"),
+                
+                html.H5("Development & Contributors", className="mt-4"),
+                html.Ul([
+                    html.Li([
+                        html.Strong("Lead Developer: "), 
+                        "German Diabetes Center (DDZ)"
+                    ]),
+                    html.Li([
+                        html.Strong("Institution: "), 
+                        "Institute for Clinical Bioinformatics"
+                    ]),
+                    html.Li([
+                        html.Strong("Framework: "), 
+                        "Built with Plotly Dash & Python"
+                    ]),
+                ]),
+                
+                html.Hr(),
+                html.Div([
+                    html.H5("Contact & Support", className="mt-4"),
+                    html.P([
+                        "For questions, bug reports, or feature requests, please visit our ",
+                        html.A("GitHub repository", 
+                              href="https://github.com/ddz-icb/deepKEA-GUI/issues", 
+                              target="_blank"),
+                        "."
+                    ]),
+                ]),
+                
+                html.Hr(),
+                html.P([
+                    html.Small([
+                        "Version ", constants.APP_VERSION, " | ",
+                        "© 2024 German Diabetes Center (DDZ)"
+                    ])
+                ], className="text-muted text-center mt-4")
+            ])
+        
+        return html.Div("Select a tab to view content.")
